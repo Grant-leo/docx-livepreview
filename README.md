@@ -1,5 +1,7 @@
 # DOCX Live Preview
 
+[![VS Code Marketplace](https://img.shields.io/vscode-marketplace/v/docx-chat.docx-livepreview.svg?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=docx-chat.docx-livepreview)
+
 <p align="center">
   <a href="#english"><strong>English</strong></a> &nbsp;|&nbsp;
   <a href="#chinese"><strong>中文</strong></a>
