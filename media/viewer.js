@@ -22,6 +22,7 @@
   const loading = $("loading");
   const errorBox = $("error");
   const errorMsg = $("errorMessage");
+  const pageContainer = $("pageContainer");
   const canvasArea = $("canvasArea");
   const currentPageSpan = $("currentPage");
   const totalPagesSpan = $("totalPages");
@@ -71,10 +72,10 @@
   }
 
   function fitToWidth() {
-    const containerWidth = canvasArea.clientWidth - 40;
-    console.log("[viewer] fitToWidth: container=" + containerWidth + "px naturalWidth=" + pageImage.naturalWidth + "px");
+    const viewportWidth = pageContainer.clientWidth - 40; // 40px for canvasArea padding
+    console.log("[viewer] fitToWidth: viewport=" + viewportWidth + "px naturalWidth=" + pageImage.naturalWidth + "px");
     if (pageImage.naturalWidth > 0) {
-      zoom = Math.round((containerWidth / pageImage.naturalWidth) * 100);
+      zoom = Math.round((viewportWidth / pageImage.naturalWidth) * 100);
       zoom = Math.max(25, Math.min(300, zoom));
       console.log("[viewer] fitToWidth: calculated zoom=" + zoom + "%");
       applyZoom();
@@ -174,6 +175,10 @@
     applyZoom();
   });
   $("btnFitWidth").addEventListener("click", fitToWidth);
+  $("btnZoom100").addEventListener("click", () => {
+    zoom = 100;
+    applyZoom();
+  });
 
   // ── Keyboard shortcuts ──
   window.addEventListener("keydown", (e) => {

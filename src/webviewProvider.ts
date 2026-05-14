@@ -41,6 +41,7 @@ export function getHtmlForWebview(
     <input type="range" id="zoomSlider" min="25" max="300" value="100" title="Zoom">
     <button id="btnZoomIn" title="Zoom In">+</button>
     <span id="zoomLabel">100%</span>
+    <button id="btnZoom100" title="100%">1:1</button>
     <button id="btnFitWidth" title="Fit Width">&#8596;</button>
     <div class="separator"></div>
     <button id="btnRefresh" title="Refresh Preview">&#8635;</button>
