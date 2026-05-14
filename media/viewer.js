@@ -1,8 +1,8 @@
 /**
  * viewer.js — Frontend JavaScript for the DOCX preview webview.
  *
- * Zero dependencies. Handles page display, zoom, fit modes,
- * keyboard navigation, and auto-refresh communication with the
+ * Zero dependencies. Handles page display, zoom, keyboard
+ * navigation, and auto-refresh communication with the
  * VSCode extension host.
  */
 (function () {
@@ -12,7 +12,6 @@
   let currentPage = 1;
   let totalPages = 0;
   let zoom = 100;
-  let fitMode = "none";
   let pageImages = new Map(); // pageNum -> base64 string
   let dpi = 200;
 
@@ -22,7 +21,6 @@
   const loading = $("loading");
   const errorBox = $("error");
   const errorMsg = $("errorMessage");
-  const pageContainer = $("pageContainer");
   const canvasArea = $("canvasArea");
   const currentPageSpan = $("currentPage");
   const totalPagesSpan = $("totalPages");
@@ -57,7 +55,6 @@
 
   function displayPage(imageBase64, page) {
     pageImages.set(page, imageBase64);
-    pageImage.onload = null; // clear stale fit-to-width handler
     pageImage.src = "data:image/png;base64," + imageBase64;
     currentPage = page;
     showPage();
@@ -71,27 +68,12 @@
     zoomLabel.textContent = zoom + "%";
   }
 
-  function fitToWidth() {
-    const viewportWidth = pageContainer.clientWidth - 40; // 40px for canvasArea padding
-    console.log("[viewer] fitToWidth: viewport=" + viewportWidth + "px naturalWidth=" + pageImage.naturalWidth + "px");
-    if (pageImage.naturalWidth > 0) {
-      zoom = Math.round((viewportWidth / pageImage.naturalWidth) * 100);
-      zoom = Math.max(25, Math.min(300, zoom));
-      console.log("[viewer] fitToWidth: calculated zoom=" + zoom + "%");
-      applyZoom();
-    }
-  }
-
   function goToPage(page) {
     if (page < 1 || page > totalPages) { return; }
     currentPage = page;
     if (pageImages.has(page)) {
       displayPage(pageImages.get(page), page);
-      if (fitMode === "width") {
-        pageImage.onload = () => fitToWidth();
-      } else {
-        applyZoom();
-      }
+      applyZoom();
     } else {
       showLoading();
       vscode.postMessage({ type: "requestPage", page });
@@ -101,7 +83,7 @@
   // ── Message handler ──
   window.addEventListener("message", (event) => {
     const msg = event.data;
-    console.log("[viewer] msg:", msg.type, "fit:", msg.fit, "zoom:", msg.zoom, "dpi:", msg.dpi, "page:", msg.page);
+    console.log("[viewer] msg:", msg.type, "zoom:", msg.zoom, "dpi:", msg.dpi, "page:", msg.page);
 
     switch (msg.type) {
       case "setPage":
@@ -110,22 +92,13 @@
         if (msg.zoom !== undefined) {
           zoom = msg.zoom;
         }
-        if (msg.fit !== undefined) {
-          fitMode = msg.fit;
-        }
         displayPage(msg.image, msg.page);
-        if (msg.fit === "width") {
-          pageImage.onload = () => fitToWidth();
-        } else {
-          pageImage.onload = null;
-          applyZoom();
-        }
+        applyZoom();
         break;
 
       case "setAllPages":
         totalPages = msg.totalPages;
         if (msg.zoom !== undefined) { zoom = msg.zoom; }
-        if (msg.fit !== undefined) { fitMode = msg.fit; }
         dpi = msg.dpi || dpi;
         msg.pages.forEach((p) => {
           pageImages.set(p.page, p.image);
@@ -135,12 +108,7 @@
         } else {
           displayPage(msg.pages[0].image, 1);
         }
-        // Reapply current zoom/fit after cached page load
-        if (fitMode === "width") {
-          pageImage.onload = () => fitToWidth();
-        } else {
-          applyZoom();
-        }
+        applyZoom();
         break;
 
       case "error":
@@ -174,8 +142,7 @@
     zoom = parseInt(zoomSlider.value, 10);
     applyZoom();
   });
-  $("btnFitWidth").addEventListener("click", fitToWidth);
-  $("btnZoom100").addEventListener("click", () => {
+$("btnZoom100").addEventListener("click", () => {
     zoom = 100;
     applyZoom();
   });

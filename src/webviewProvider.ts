@@ -42,8 +42,7 @@ export function getHtmlForWebview(
     <button id="btnZoomIn" title="Zoom In">+</button>
     <span id="zoomLabel">100%</span>
     <button id="btnZoom100" title="100%">1:1</button>
-    <button id="btnFitWidth" title="Fit Width">&#8596;</button>
-    <div class="separator"></div>
+<div class="separator"></div>
     <button id="btnRefresh" title="Refresh Preview">&#8635;</button>
   </div>
 

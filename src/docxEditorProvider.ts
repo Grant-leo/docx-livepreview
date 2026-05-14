@@ -8,7 +8,7 @@ import * as vscode from "vscode";
 import { getPythonManager } from "./pythonManager";
 import { WpsRenderer } from "./wpsRenderer";
 import { getHtmlForWebview } from "./webviewProvider";
-import { getRenderDpi, getDefaultFit, getDefaultZoom, getAutoRefresh } from "./config";
+import { getRenderDpi, getDefaultZoom, getAutoRefresh } from "./config";
 
 class DocxDocument implements vscode.CustomDocument {
   private _uri: vscode.Uri;
@@ -77,7 +77,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     }
 
     const dpi = getRenderDpi();
-    const fit = getDefaultFit();
     const zoom = getDefaultZoom();
 
     // ── Progressive: show low-res page 1 first (~50ms), then upgrade ──
@@ -88,7 +87,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         image: lowRes,
         page: 1,
         totalPages: pageCount,
-        fit,
         zoom,
         dpi: 72,
       });
@@ -104,7 +102,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         image: highRes,
         page: 1,
         totalPages: pageCount,
-        fit,
+
         zoom,
         dpi,
       });
@@ -124,7 +122,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           type: "setAllPages",
           pages: data,
           totalPages: pageCount,
-          fit,
+  
           zoom,
           dpi,
         });
@@ -145,7 +143,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
               image: img,
               page: msg.page,
               totalPages: this.renderer.pageCount,
-              fit,
+      
               zoom,
               dpi,
             });
@@ -160,7 +158,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
               image: img,
               page: 1,
               totalPages: count,
-              fit,
+      
               zoom,
               dpi,
             });
@@ -173,7 +171,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
               type: "setAllPages",
               pages,
               totalPages: pages.length,
-              fit,
+      
               zoom,
               dpi,
             });
@@ -220,7 +218,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           if (!this.renderer) { return; }
           await this.renderer.open(watchPath);
           const img = await this.renderer.renderPage(1);
-          const fit = getDefaultFit();
           const zoom = getDefaultZoom();
           const dpi = getRenderDpi();
           panel.webview.postMessage({
@@ -228,7 +225,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
             image: img,
             page: 1,
             totalPages: this.renderer.pageCount,
-            fit,
+    
             zoom,
             dpi,
           });

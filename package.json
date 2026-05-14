@@ -75,13 +75,8 @@
           "maximum": 500,
           "description": "Default zoom percentage"
         },
-        "docx.defaultFit": {
-          "type": "string",
-          "enum": ["width", "page", "none"],
-          "default": "none",
-          "description": "Default fit mode"
-        },
-        "docx.renderDpi": {
+
+"docx.renderDpi": {
           "type": "number",
           "default": 200,
           "minimum": 72,
