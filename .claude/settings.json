@@ -4,7 +4,10 @@
       "Bash(mkdir -p \"e:\\\\career\\\\word-chat-livepreview\\\\.vscode\")",
       "Read(//c/Users/Administrator/.vscode/extensions/word-chat.word-chat-livepreview-0.1.0/out/**)",
       "Bash(npx tsc *)",
-      "Bash(npx vsce *)"
+      "Bash(npx vsce *)",
+      "Bash(git push *)",
+      "Read(//e/career/word_chat_v1/**)",
+      "Bash(git add *)"
     ],
     "additionalDirectories": [
       "e:\\career\\word-chat-livepreview"

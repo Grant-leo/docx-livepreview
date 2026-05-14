@@ -77,8 +77,8 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
-export function deactivate() {
+export async function deactivate() {
   if (pythonManager) {
-    pythonManager.dispose();
+    await pythonManager.dispose();
   }
 }

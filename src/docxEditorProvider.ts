@@ -29,7 +29,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     _openContext: vscode.CustomDocumentOpenContext,
     _token: vscode.CancellationToken
   ): Promise<DocxDocument> {
-    if (uri.fsPath.includes("~$")) {
+    // WPS lock files start with ~$ in the filename, not anywhere in path
+    const basename = uri.fsPath.split(/[\\/]/).pop() || "";
+    if (basename.startsWith("~$")) {
       throw new Error("Cannot preview WPS lock files");
     }
     return new DocxDocument(uri);
@@ -254,7 +256,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       this.debounceTimer = null;
     }
     if (this.fileWatcher) {
-      this.fileWatcher.dispose();
+      try { this.fileWatcher.dispose(); } catch { /* already disposed */ }
       this.fileWatcher = null;
     }
   }

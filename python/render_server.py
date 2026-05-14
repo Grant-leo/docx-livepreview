@@ -71,7 +71,7 @@ class WpsRenderer:
                 f"Last error: {last_err}"
             )
         self.app.Visible = False
-        self.app.DisplayAlerts = False
+        self.app.DisplayAlerts = 0  # wdAlertsNone — suppress all dialogs
 
     def warm_up(self):
         """Pre-start WPS COM so first open_document is instant."""
@@ -121,7 +121,18 @@ class WpsRenderer:
                 pass
 
         abs_path = str(path.absolute())
-        self.doc = self.app.Documents.Open(abs_path)
+        try:
+            self.doc = self.app.Documents.Open(abs_path)
+        except Exception as e:
+            msg = str(e)
+            if "password" in msg.lower() or "encrypt" in msg.lower():
+                raise RuntimeError("Document is password-protected. Cannot preview encrypted files.") from e
+            if "repair" in msg.lower() or "corrupt" in msg.lower():
+                raise RuntimeError(f"Document appears to be corrupted: {msg}") from e
+            raise RuntimeError(f"WPS failed to open document: {msg}") from e
+
+        if self.doc is None:
+            raise RuntimeError("WPS returned no document object — file may be protected or corrupted")
 
         # Get page count — try multiple methods for robustness
         try:

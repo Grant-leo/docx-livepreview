@@ -170,6 +170,7 @@ $("btnZoom100").addEventListener("click", () => {
 
   // ── Image load error ──
   pageImage.addEventListener("error", () => {
+    pageImage.removeAttribute("src");
     showError("Failed to load rendered page image.");
   });
 

@@ -25,6 +25,7 @@ export class PythonManager {
   private outputChannel: vscode.OutputChannel;
   private healthTimer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
+  private stopping = false;
   private warmedUp = false;
   private _ready = false;
   private _startPromise: Promise<void> | null = null;
@@ -176,6 +177,16 @@ export class PythonManager {
   }
 
   private async _doStop(): Promise<void> {
+    if (this.stopping) { return; }
+    this.stopping = true;
+    try {
+      return await this._doStopInner();
+    } finally {
+      this.stopping = false;
+    }
+  }
+
+  private async _doStopInner(): Promise<void> {
     this.warmedUp = false;
     if (this.healthTimer) {
       clearInterval(this.healthTimer);
@@ -224,9 +235,9 @@ export class PythonManager {
   }
 
   /** Dispose all resources. */
-  dispose(): void {
+  async dispose(): Promise<void> {
     this.disposed = true;
-    this.stop();
+    await this.stop();
     this.outputChannel.dispose();
   }
 
@@ -260,7 +271,7 @@ export class PythonManager {
 
   private async healthCheck(): Promise<void> {
     try {
-      await this.send("ping", {}, 5000);
+      await this.send("ping", {}, 10000);
     } catch {
       this.outputChannel.appendLine("[PythonManager] Health check failed, restarting...");
       this._ready = false;
