@@ -11,11 +11,12 @@ import { getPythonManager, PythonManager } from "./pythonManager";
 let pythonManager: PythonManager | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
-  // Windows + WPS requirement check
+  // Windows + WPS requirement check — bail early on unsupported platforms
   if (process.platform !== "win32") {
     vscode.window.showWarningMessage(
-      "DOCX Live Preview requires Windows with WPS Office installed. Current platform is not Windows."
+      "DOCX Live Preview requires Windows with WPS Office installed."
     );
+    return;
   }
 
   // Pre-warm Python + WPS COM in background so first open is fast

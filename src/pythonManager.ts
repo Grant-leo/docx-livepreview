@@ -81,6 +81,12 @@ export class PythonManager {
       );
       this._ready = false;
       this.warmedUp = false;
+      // Reject all pending requests — the old process can't answer them
+      this.pending.forEach((req) => {
+        clearTimeout(req.timer);
+        req.reject(new Error("Python process exited unexpectedly"));
+      });
+      this.pending.clear();
       if (!this.disposed && code !== 0 && signal !== "SIGTERM") {
         this.attemptRestart();
       }

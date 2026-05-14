@@ -168,6 +168,11 @@ $("btnZoom100").addEventListener("click", () => {
     applyZoom();
   });
 
+  // ── Image load error ──
+  pageImage.addEventListener("error", () => {
+    showError("Failed to load rendered page image.");
+  });
+
   // ── Keyboard shortcuts ──
   window.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") { return; }

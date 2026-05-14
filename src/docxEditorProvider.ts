@@ -38,7 +38,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   async resolveCustomEditor(
     document: DocxDocument,
     webviewPanel: vscode.WebviewPanel,
-    _token: vscode.CancellationToken
+    token: vscode.CancellationToken
   ): Promise<void> {
     webviewPanel.webview.options = { enableScripts: true };
     webviewPanel.webview.html = getHtmlForWebview(
@@ -62,6 +62,13 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       }
     }
 
+    // Check cancellation before heavy work
+    if (token.isCancellationRequested) { return; }
+
+    // Close previous renderer if user opens another document
+    if (this.renderer) {
+      await this.renderer.close();
+    }
     this.renderer = new WpsRenderer(pythonManager);
 
     // ── Open document ──
@@ -75,6 +82,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       });
       return;
     }
+
+    if (token.isCancellationRequested) { return; }
 
     const dpi = getRenderDpi();
     const zoom = getDefaultZoom();
