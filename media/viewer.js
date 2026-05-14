@@ -25,6 +25,7 @@
   const currentPageSpan = $("currentPage");
   const totalPagesSpan = $("totalPages");
   const zoomSlider = $("zoomSlider");
+  const zoomInput = $("zoomInput");
   const zoomLabel = $("zoomLabel");
 
   // ── Display helpers ──
@@ -60,11 +61,19 @@
     showPage();
   }
 
+  function clampZoom(v) {
+    if (isNaN(v) || v < 25) { return 25; }
+    if (v > 500) { return 500; }
+    return Math.round(v);
+  }
+
   function applyZoom() {
+    zoom = clampZoom(zoom);
     console.log("[viewer] applyZoom: zoom=" + zoom + "% naturalWidth=" + pageImage.naturalWidth + "px");
     pageImage.style.transform = `scale(${zoom / 100})`;
     pageImage.style.transformOrigin = "top center";
     zoomSlider.value = String(zoom);
+    zoomInput.value = String(zoom);
     zoomLabel.textContent = zoom + "%";
   }
 
@@ -131,16 +140,28 @@
   });
 
   $("btnZoomOut").addEventListener("click", () => {
-    zoom = Math.max(25, zoom - 10);
+    zoom = clampZoom(zoom - 10);
     applyZoom();
   });
   $("btnZoomIn").addEventListener("click", () => {
-    zoom = Math.min(300, zoom + 10);
+    zoom = clampZoom(zoom + 10);
     applyZoom();
   });
   zoomSlider.addEventListener("input", () => {
     zoom = parseInt(zoomSlider.value, 10);
     applyZoom();
+  });
+  zoomInput.addEventListener("change", () => {
+    zoom = clampZoom(parseInt(zoomInput.value, 10));
+    applyZoom();
+  });
+  zoomInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      zoom = clampZoom(parseInt(zoomInput.value, 10));
+      applyZoom();
+      zoomInput.blur();
+    }
   });
 $("btnZoom100").addEventListener("click", () => {
     zoom = 100;
@@ -174,8 +195,7 @@ $("btnZoom100").addEventListener("click", () => {
   canvasArea.addEventListener("wheel", (e) => {
     if (e.ctrlKey) {
       e.preventDefault();
-      zoom += e.deltaY < 0 ? 10 : -10;
-      zoom = Math.max(25, Math.min(300, zoom));
+      zoom = clampZoom(zoom + (e.deltaY < 0 ? 10 : -10));
       applyZoom();
     }
   }, { passive: false });
