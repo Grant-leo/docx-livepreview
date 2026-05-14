@@ -1,0 +1,104 @@
+{
+  "name": "docx-livepreview",
+  "displayName": "DOCX Live Preview",
+  "description": "WPS-native DOCX preview for academic papers — OMML math, CJK fonts, three-line tables rendered pixel-perfect via WPS COM engine",
+  "version": "0.1.0",
+  "publisher": "docx-chat",
+  "icon": "media/icon.png",
+  "repository": "https://github.com/Grant-leo/docx-livepreview",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "docx",
+    "WPS",
+    "preview",
+    "academic",
+    "OMML",
+    "math",
+    "CJK"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCustomEditor:docx.docxPreview"
+  ],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "docx.docxPreview",
+        "displayName": "WPS DOCX Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.docx"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "docx.openPreview",
+        "title": "Open with WPS Preview",
+        "category": "DOCX"
+      },
+      {
+        "command": "docx.refreshPreview",
+        "title": "Refresh Preview",
+        "category": "DOCX"
+      },
+      {
+        "command": "docx.toggleAutoRefresh",
+        "title": "Toggle Auto-Refresh",
+        "category": "DOCX"
+      }
+    ],
+    "configuration": {
+      "title": "DOCX Live Preview",
+      "properties": {
+        "docx.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Path to Python 3.8+ executable"
+        },
+        "docx.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh preview when the docx file changes"
+        },
+        "docx.defaultZoom": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "maximum": 500,
+          "description": "Default zoom percentage"
+        },
+        "docx.defaultFit": {
+          "type": "string",
+          "enum": ["width", "page", "none"],
+          "default": "none",
+          "description": "Default fit mode"
+        },
+        "docx.renderDpi": {
+          "type": "number",
+          "default": 200,
+          "minimum": 72,
+          "maximum": 600,
+          "description": "Render DPI (higher = sharper, slower, more memory)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "tsc -p ./",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}

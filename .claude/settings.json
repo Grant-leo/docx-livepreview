@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"e:\\\\career\\\\word-chat-livepreview\\\\.vscode\")",
+      "Read(//c/Users/Administrator/.vscode/extensions/word-chat.word-chat-livepreview-0.1.0/out/**)",
+      "Bash(npx tsc *)",
+      "Bash(npx vsce *)"
+    ],
+    "additionalDirectories": [
+      "e:\\career\\word-chat-livepreview"
+    ]
+  }
+}
