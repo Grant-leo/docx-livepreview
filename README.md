@@ -1,6 +1,22 @@
 # DOCX Live Preview
 
-WPS-native DOCX preview for VSCode. Renders academic papers with **OMML math equations**, **CJK fonts**, and **three-line tables** pixel-perfect via the WPS COM engine.
+WPS-native DOCX preview for VSCode — renders **OMML math equations**, **CJK fonts**, and **three-line tables** pixel-perfect via the WPS COM engine.
+
+## Why This Exists / 为什么会有这个插件
+
+This plugin was built specifically for the **[word_chat](https://github.com/Grant-leo/word_chat)** project. The motivation is simple:
+
+**Existing DOCX preview extensions display formatting incorrectly in VSCode.** What you see in VSCode does not match what WPS actually renders — fonts shift, tables misalign, math equations break. This discrepancy forces you to constantly switch out of VSCode to verify formatting in WPS, which kills flow and makes accurate editing nearly impossible.
+
+This plugin solves that by **using WPS itself as the renderer**. Same engine, same output — pixel-perfect fidelity. No more context-switching.
+
+---
+
+本插件专为 **[word_chat](https://github.com/Grant-leo/word_chat)** 项目打造。原因很简单：
+
+**现有的 DOCX 预览插件在 VSCode 中的显示效果与 WPS 实际渲染不一致**——字体偏移、表格错位、数学公式变形。这种差异导致你在 VSCode 中编辑时无法准确判断格式，必须频繁切回 WPS 查看实际效果，严重打断工作流。
+
+本插件**直接调用 WPS 引擎进行渲染**，同一引擎，同一输出——显示与 WPS 完全一致，无需再切来切去。
 
 ## Prerequisites
 
