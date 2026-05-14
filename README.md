@@ -27,6 +27,11 @@ This plugin solves that by **using WPS itself as the renderer**. Same engine, sa
   pip install pywin32 PyMuPDF
   ```
 
+## Installation
+
+- **VSCode Marketplace:** Search `DOCX Live Preview` in the Extensions panel (`Ctrl+Shift+X`)
+- **Manual:** Download `.vsix` from [Releases](https://github.com/Grant-leo/docx-livepreview/releases) → `Ctrl+Shift+P` → `Extensions: Install from VSIX...`
+
 ## Usage
 
 1. Open any `.docx` file in VSCode
