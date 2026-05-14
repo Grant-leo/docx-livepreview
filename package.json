@@ -2,7 +2,7 @@
   "name": "docx-livepreview",
   "displayName": "DOCX Live Preview",
   "description": "WPS-native DOCX preview for academic papers — OMML math, CJK fonts, three-line tables rendered pixel-perfect via WPS COM engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "docx-chat",
   "icon": "media/icon.png",
   "repository": "https://github.com/Grant-leo/docx-livepreview",
