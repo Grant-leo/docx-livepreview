@@ -147,6 +147,7 @@ class WpsRenderer:
         """
         self._ensure_wps()
         self._dpi = dpi
+        self._current_path = docx_path
 
         path = Path(docx_path)
         if not path.exists():
@@ -189,19 +190,41 @@ class WpsRenderer:
         return self.page_count
 
     def _build_bookmark_cache(self):
-        """Scan all _src_L* bookmarks and cache {name: (charStart, charEnd)}."""
-        self._src_bookmarks = {}  # name -> (start_char, end_char)
+        """Read DOCX XML via python-docx to find _src_L* bookmarks.
+
+        WPS COM Bookmarks doesn't support iteration, so we parse the
+        document XML directly to map source lines to paragraph indices
+        and text samples for reverse search.
+        """
+        self._src_bookmarks = {}  # name -> (para_idx, text_sample)
+        self._sync_lines = []
         try:
-            for bm in self.doc.Bookmarks:
-                name = str(bm.Name)
-                if name.startswith("_src_L"):
-                    self._src_bookmarks[name] = (bm.Range.Start, bm.Range.End)
+            from docx import Document as DocxReader
+            reader = DocxReader(self._current_path)
+            for para_idx, para in enumerate(reader.paragraphs):
+                el = para._element
+                for child in el:
+                    tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                    if tag == "bookmarkStart":
+                        wml = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+                        name = child.get(f"{wml}name") or child.get("w:name") or ""
+                        if name.startswith("_src_L"):
+                            line = int(name.replace("_src_L", ""))
+                            self._src_bookmarks[name] = (
+                                para_idx,
+                                para.text[:80] if para.text else ""
+                            )
+                            self._sync_lines.append(line)
+            self._sync_lines.sort()
         except Exception:
             self._src_bookmarks = {}
+            self._sync_lines = []
 
     def forward_search(self, source_line):
         """Navigate to _src_L{line} bookmark and return page number."""
         bookmark_name = f"_src_L{source_line}"
+        if bookmark_name not in self._src_bookmarks:
+            return {"found": False}
         try:
             self._call_com(
                 self.app.Selection.GoTo, What=-1, Name=bookmark_name
@@ -216,52 +239,42 @@ class WpsRenderer:
     def reverse_search(self, page_num, x, y):
         """Find nearest _src_L bookmark to click position.
 
-        Uses PyMuPDF to find word at (x,y) in PDF coordinates (points),
-        then matches against cached bookmark character positions via WPS Range.Find.
+        Uses PyMuPDF to get paragraph text at click position,
+        then matches against cached bookmark text samples to
+        find the corresponding source line.
         """
         if not self._src_bookmarks:
             return {"found": False}
 
-        # Step 1: find word at click position via PyMuPDF
-        clicked_word = None
+        # Step 1: get paragraph text near click via PyMuPDF
+        block_text = None
         if self.pdf_path and os.path.exists(self.pdf_path):
             pdf_doc = fitz.open(self.pdf_path)
             try:
                 if 1 <= page_num <= len(pdf_doc):
                     page_pdf = pdf_doc[page_num - 1]
-                    words = page_pdf.get_text("words")
-                    for w in words:
-                        if w[0] <= x <= w[2] and w[1] <= y <= w[3]:
-                            clicked_word = w[4]
+                    blocks = page_pdf.get_text("blocks")
+                    for b in blocks:
+                        if b[0] <= x <= b[2] and b[1] <= y <= b[3]:
+                            block_text = b[4].strip().replace("\n", " ")
                             break
             finally:
                 pdf_doc.close()
 
-        if not clicked_word:
+        if not block_text:
             return {"found": False}
 
-        # Step 2: find the word in WPS document to get character position
-        try:
-            rng = self.doc.Range()
-            if not rng.Find.Execute(clicked_word):
-                return {"found": False}
-            click_pos = rng.Start
-        except Exception:
-            return {"found": False}
-
-        # Step 3: find nearest _src_L bookmark by character position
+        # Step 2: match block text against bookmark text samples
         best_line = None
-        best_dist = float("inf")
-        for name, (start, end) in self._src_bookmarks.items():
-            dist = abs(start - click_pos)
-            if dist < best_dist:
-                best_dist = dist
-                try:
+        best_len = 0
+        search_text = block_text[:60]
+        for name, (para_idx, sample) in self._src_bookmarks.items():
+            if sample and len(sample) > best_len:
+                if sample in search_text or search_text in sample:
+                    best_len = len(sample)
                     best_line = int(name.replace("_src_L", ""))
-                except ValueError:
-                    continue
 
-        if best_line is not None and best_dist < 2000:
+        if best_line is not None:
             return {"source_line": best_line, "found": True}
         return {"found": False}
 
