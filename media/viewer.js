@@ -56,6 +56,7 @@
 
   function displayPage(imageBase64, page) {
     pageImages.set(page, imageBase64);
+    pageImage.removeAttribute("src");
     pageImage.src = "data:image/png;base64," + imageBase64;
     currentPage = page;
     showPage();

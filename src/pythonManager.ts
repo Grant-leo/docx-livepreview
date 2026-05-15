@@ -282,6 +282,8 @@ export class PythonManager {
 
   private async attemptRestart(): Promise<void> {
     if (this.disposed) { return; }
+    // If a restart is already in progress, don't double-count
+    if (this._startPromise) { return; }
     this.restartCount++;
     if (this.restartCount > this.maxRestarts) {
       vscode.window.showErrorMessage(

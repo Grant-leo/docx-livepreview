@@ -118,6 +118,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         dpi,
       });
     } catch (e: any) {
+      this.renderer.close().catch(() => {});
       webviewPanel.webview.postMessage({
         type: "error",
         message: e.message || "Failed to render page",
@@ -206,7 +207,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     webviewPanel.onDidDispose(() => {
       this.cleanupWatcher();
       if (this.renderer) {
-        this.renderer.close();
+        this.renderer.close().catch(() => { /* best-effort */ });
       }
     });
   }
@@ -248,6 +249,12 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
     this.fileWatcher.onDidChange(onRefresh);
     this.fileWatcher.onDidCreate(onRefresh);
+    this.fileWatcher.onDidDelete(() => {
+      panel.webview.postMessage({
+        type: "error",
+        message: "File has been deleted or moved.",
+      });
+    });
   }
 
   private cleanupWatcher(): void {

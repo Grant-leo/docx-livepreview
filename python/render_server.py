@@ -158,8 +158,16 @@ class WpsRenderer:
         fd, pdf_path = tempfile.mkstemp(suffix=".pdf", prefix="wps_preview_")
         os.close(fd)
 
-        # 17 = wdExportFormatPDF
-        self.doc.ExportAsFixedFormat(pdf_path, self.PDF_FORMAT)
+        try:
+            self.doc.ExportAsFixedFormat(pdf_path, self.PDF_FORMAT)
+        except Exception:
+            # Clean up temp file on failure
+            try:
+                os.unlink(pdf_path)
+            except Exception:
+                pass
+            raise
+
         self.pdf_path = pdf_path
         return pdf_path
 
