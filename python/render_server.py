@@ -42,10 +42,26 @@ class WpsRenderer:
         self.document_open = False
         self._dpi = 200
 
+    RPC_E_SERVER_UNAVAILABLE = -2147023174  # 0x800706BA
+
+    def _reset_wps(self):
+        """Force-reset WPS COM connection after RPC failure."""
+        try:
+            if self.doc is not None:
+                self.doc = None
+        except Exception:
+            pass
+        try:
+            if self.app is not None:
+                self.app = None
+        except Exception:
+            pass
+        self.document_open = False
+        self.pdf_path = None
+        self._src_bookmarks = {}
+
     def _ensure_wps(self):
-        """Start WPS COM server (lazy, first use)."""
-        if self.app is not None:
-            return
+        """Start WPS COM server (lazy, first use). Auto-recovers from RPC failures."""
         if win32com is None:
             raise RuntimeError(
                 "pywin32 is not installed. Run: pip install pywin32"
@@ -54,6 +70,18 @@ class WpsRenderer:
             raise RuntimeError(
                 "PyMuPDF is not installed. Run: pip install PyMuPDF"
             )
+
+        if self.app is not None:
+            # Check if existing COM connection is still alive
+            try:
+                _ = self.app.Name  # probe the COM object
+                return
+            except Exception as e:
+                if getattr(e, "hresult", 0) == self.RPC_E_SERVER_UNAVAILABLE \
+                   or "RPC" in str(e).upper():
+                    self._reset_wps()
+                else:
+                    raise
 
         pythoncom.CoInitialize()
         prog_ids = ["Kwps.Application", "wps.Application", "WPS.Application"]
@@ -72,6 +100,17 @@ class WpsRenderer:
             )
         self.app.Visible = False
         self.app.DisplayAlerts = 0  # wdAlertsNone — suppress all dialogs
+
+    def _call_com(self, fn, *args, **kwargs):
+        """Call a COM operation with automatic RPC recovery + one retry."""
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            hr = getattr(e, "hresult", 0)
+            if hr == self.RPC_E_SERVER_UNAVAILABLE or "RPC" in str(e).upper():
+                self._ensure_wps()  # probes, resets if dead, reconnects
+                return fn(*args, **kwargs)
+            raise
 
     def warm_up(self):
         """Pre-start WPS COM so first open_document is instant."""
@@ -122,7 +161,9 @@ class WpsRenderer:
 
         abs_path = str(path.absolute())
         try:
-            self.doc = self.app.Documents.Open(abs_path)
+            self.doc = self._call_com(
+                self.app.Documents.Open, abs_path
+            )
         except Exception as e:
             msg = str(e)
             if "password" in msg.lower() or "encrypt" in msg.lower():
@@ -162,8 +203,12 @@ class WpsRenderer:
         """Navigate to _src_L{line} bookmark and return page number."""
         bookmark_name = f"_src_L{source_line}"
         try:
-            self.app.Selection.GoTo(What=-1, Name=bookmark_name)  # wdGoToBookmark
-            page = self.app.Selection.Information(3)  # wdActiveEndPageNumber
+            self._call_com(
+                self.app.Selection.GoTo, What=-1, Name=bookmark_name
+            )
+            page = self._call_com(
+                self.app.Selection.Information, 3
+            )
             return {"page": page, "found": True}
         except Exception:
             return {"found": False}
@@ -233,7 +278,9 @@ class WpsRenderer:
         os.close(fd)
 
         try:
-            self.doc.ExportAsFixedFormat(pdf_path, self.PDF_FORMAT)
+            self._call_com(
+                self.doc.ExportAsFixedFormat, pdf_path, self.PDF_FORMAT
+            )
         except Exception:
             # Clean up temp file on failure
             try:
@@ -302,7 +349,7 @@ class WpsRenderer:
         """Close document and clean up temp file."""
         if self.doc is not None:
             try:
-                self.doc.Close()
+                self._call_com(self.doc.Close)
             except Exception:
                 pass
             self.doc = None
@@ -320,7 +367,7 @@ class WpsRenderer:
         self.close()
         if self.app is not None:
             try:
-                self.app.Quit()
+                self._call_com(self.app.Quit)
             except Exception:
                 pass
             self.app = None
