@@ -42,6 +42,18 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register commands
   context.subscriptions.push(
+    vscode.commands.registerCommand("docx.goToPreview", () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showInformationMessage("No active editor.");
+        return;
+      }
+      const line = editor.selection.active.line + 1; // 1-based
+      provider.goToSourceLine(line);
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("docx.openPreview", async (uri?: vscode.Uri) => {
       if (!uri) {
         const editor = vscode.window.activeTextEditor;

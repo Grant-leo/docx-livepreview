@@ -20,3 +20,7 @@ export function getDefaultZoom(): number {
 export function getRenderDpi(): number {
   return vscode.workspace.getConfiguration(SECTION).get<number>("renderDpi", 200);
 }
+
+export function getSourceScript(): string {
+  return vscode.workspace.getConfiguration(SECTION).get<string>("sourceScript", "");
+}

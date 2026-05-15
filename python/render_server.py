@@ -144,7 +144,81 @@ class WpsRenderer:
                 self.page_count = self.doc.ActiveWindow.ActivePane.Pages.Count
 
         self.document_open = True
+        self._build_bookmark_cache()
         return self.page_count
+
+    def _build_bookmark_cache(self):
+        """Scan all _src_L* bookmarks and cache {name: (charStart, charEnd)}."""
+        self._src_bookmarks = {}  # name -> (start_char, end_char)
+        try:
+            for bm in self.doc.Bookmarks:
+                name = str(bm.Name)
+                if name.startswith("_src_L"):
+                    self._src_bookmarks[name] = (bm.Range.Start, bm.Range.End)
+        except Exception:
+            self._src_bookmarks = {}
+
+    def forward_search(self, source_line):
+        """Navigate to _src_L{line} bookmark and return page number."""
+        bookmark_name = f"_src_L{source_line}"
+        try:
+            self.app.Selection.GoTo(What=-1, Name=bookmark_name)  # wdGoToBookmark
+            page = self.app.Selection.Information(3)  # wdActiveEndPageNumber
+            return {"page": page, "found": True}
+        except Exception:
+            return {"found": False}
+
+    def reverse_search(self, page_num, x, y):
+        """Find nearest _src_L bookmark to click position.
+
+        Uses PyMuPDF to find word at (x,y) in PDF coordinates (points),
+        then matches against cached bookmark character positions via WPS Range.Find.
+        """
+        if not self._src_bookmarks:
+            return {"found": False}
+
+        # Step 1: find word at click position via PyMuPDF
+        clicked_word = None
+        if self.pdf_path and os.path.exists(self.pdf_path):
+            pdf_doc = fitz.open(self.pdf_path)
+            try:
+                if 1 <= page_num <= len(pdf_doc):
+                    page_pdf = pdf_doc[page_num - 1]
+                    words = page_pdf.get_text("words")
+                    for w in words:
+                        if w[0] <= x <= w[2] and w[1] <= y <= w[3]:
+                            clicked_word = w[4]
+                            break
+            finally:
+                pdf_doc.close()
+
+        if not clicked_word:
+            return {"found": False}
+
+        # Step 2: find the word in WPS document to get character position
+        try:
+            rng = self.doc.Range()
+            if not rng.Find.Execute(clicked_word):
+                return {"found": False}
+            click_pos = rng.Start
+        except Exception:
+            return {"found": False}
+
+        # Step 3: find nearest _src_L bookmark by character position
+        best_line = None
+        best_dist = float("inf")
+        for name, (start, end) in self._src_bookmarks.items():
+            dist = abs(start - click_pos)
+            if dist < best_dist:
+                best_dist = dist
+                try:
+                    best_line = int(name.replace("_src_L", ""))
+                except ValueError:
+                    continue
+
+        if best_line is not None and best_dist < 2000:
+            return {"source_line": best_line, "found": True}
+        return {"found": False}
 
     def _export_pdf(self):
         """Export current document to temporary PDF. Returns path."""
@@ -304,6 +378,12 @@ def main():
                 result = {"pages": pages}
             elif method == "get_page_count":
                 result = {"page_count": renderer.page_count}
+            elif method == "forward_search":
+                result = renderer.forward_search(params["source_line"])
+            elif method == "reverse_search":
+                result = renderer.reverse_search(
+                    params["page_num"], params["x"], params["y"]
+                )
             elif method == "close_document":
                 renderer.close()
                 result = {"ok": True}

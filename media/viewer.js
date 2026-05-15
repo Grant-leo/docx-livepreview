@@ -121,6 +121,10 @@
         applyZoom();
         break;
 
+      case "navigateToPage":
+        goToPage(msg.page);
+        break;
+
       case "error":
         showError(msg.message);
         break;
@@ -173,6 +177,31 @@ $("btnZoom100").addEventListener("click", () => {
   pageImage.addEventListener("error", () => {
     pageImage.removeAttribute("src");
     showError("Failed to load rendered page image.");
+  });
+
+  // ── Ctrl+Click reverse search ──
+  function clickToDocCoords(clientX, clientY) {
+    const rect = pageImage.getBoundingClientRect();
+    const imgX = clientX - rect.left;
+    const imgY = clientY - rect.top;
+    // Invert CSS scale and DPI: display px → PDF points (1/72 inch)
+    const docX = (imgX / (zoom / 100)) * (72 / dpi);
+    const docY = (imgY / (zoom / 100)) * (72 / dpi);
+    return { docX: Math.round(docX), docY: Math.round(docY) };
+  }
+
+  pageImage.addEventListener("click", function (e) {
+    if (!e.ctrlKey && !e.metaKey) { return; }
+    e.preventDefault();
+    var coords = clickToDocCoords(e.clientX, e.clientY);
+    vscode.postMessage({
+      type: "reverseSearch",
+      page: currentPage,
+      x: coords.docX,
+      y: coords.docY,
+      zoom: zoom,
+      dpi: dpi,
+    });
   });
 
   // ── Keyboard shortcuts ──

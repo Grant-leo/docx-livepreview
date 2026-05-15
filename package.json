@@ -40,6 +40,16 @@
     ],
     "commands": [
       {
+        "command": "docx.goToPreview",
+        "title": "Go to Preview (SyncTeX)",
+        "category": "DOCX"
+      },
+      {
+        "command": "docx.goToSource",
+        "title": "Go to Source (SyncTeX)",
+        "category": "DOCX"
+      },
+      {
         "command": "docx.openPreview",
         "title": "Open with WPS Preview",
         "category": "DOCX"
@@ -82,6 +92,11 @@
           "minimum": 72,
           "maximum": 600,
           "description": "Render DPI (higher = sharper, slower, more memory)"
+        },
+        "docx.sourceScript": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Python build script. Supports ${workspaceFolder}."
         }
       }
     }

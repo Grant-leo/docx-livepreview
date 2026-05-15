@@ -5,6 +5,8 @@
  * then upgrades to high-res. Pre-renders remaining pages in background.
  */
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 import { getPythonManager } from "./pythonManager";
 import { WpsRenderer } from "./wpsRenderer";
 import { getHtmlForWebview } from "./webviewProvider";
@@ -21,6 +23,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private renderer: WpsRenderer | null = null;
   private fileWatcher: vscode.FileSystemWatcher | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private currentDocxPath: string = "";
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -48,6 +51,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       this.context.extensionUri
     );
 
+    this._activePanel = webviewPanel;
     const pythonManager = getPythonManager();
 
     // Ensure Python process is running (should already be warmed up)
@@ -72,6 +76,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       await this.renderer.close();
     }
     this.renderer = new WpsRenderer(pythonManager);
+    this.currentDocxPath = document.uri.fsPath;
 
     // ── Open document ──
     let pageCount: number;
@@ -183,10 +188,20 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
               type: "setAllPages",
               pages,
               totalPages: pages.length,
-      
+
               zoom,
               dpi,
             });
+            break;
+          }
+          case "reverseSearch": {
+            if (!this.renderer) { return; }
+            const result = await this.renderer.reverseSearch(msg.page, msg.x, msg.y);
+            if (result) {
+              await this.openSourceLine(result.sourceLine);
+            } else {
+              vscode.window.showInformationMessage("No source mapping found at this position.");
+            }
             break;
           }
         }
@@ -211,6 +226,70 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       }
     });
   }
+
+  private async openSourceLine(sourceLine: number): Promise<void> {
+    const buildScript = this.findBuildScript();
+    if (!buildScript) {
+      vscode.window.showErrorMessage(
+        "No build script found. Set 'docx.sourceScript' to the path of your Python build script."
+      );
+      return;
+    }
+    const document = await vscode.workspace.openTextDocument(buildScript);
+    const editor = await vscode.window.showTextDocument(document);
+    const line = Math.max(0, sourceLine - 1); // VSCode lines are 0-based
+    const range = document.lineAt(line).range;
+    editor.selection = new vscode.Selection(range.start, range.end);
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+  }
+
+  private findBuildScript(): string | null {
+    // 1. User-configured path
+    const config = vscode.workspace.getConfiguration("docx");
+    const configured = config.get<string>("sourceScript", "");
+    if (configured) {
+      const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || "";
+      const resolved = configured.replace("${workspaceFolder}", wsRoot);
+      if (fs.existsSync(resolved)) { return resolved; }
+    }
+    // 2. Same directory as DOCX, common naming patterns
+    const dir = path.dirname(this.currentDocxPath);
+    const patterns = ["build_generated.py", "*_generated.py", "build_*.py"];
+    for (const pattern of patterns) {
+      try {
+        const files = fs.readdirSync(dir);
+        for (const f of files) {
+          if (this._matchPattern(f, pattern)) {
+            return path.join(dir, f);
+          }
+        }
+      } catch { /* dir may not exist */ }
+    }
+    return null;
+  }
+
+  private _matchPattern(filename: string, pattern: string): boolean {
+    const re = new RegExp(
+      "^" + pattern.replace(/\*/g, ".*").replace(/_/g, ".") + "$"
+    );
+    return re.test(filename);
+  }
+
+  /** Forward search: navigate preview to page containing sourceLine. */
+  async goToSourceLine(sourceLine: number, webviewPanel?: vscode.WebviewPanel): Promise<void> {
+    if (!this.renderer) { return; }
+    const result = await this.renderer.forwardSearch(sourceLine);
+    if (result) {
+      const target = webviewPanel || this._activePanel;
+      if (target) {
+        target.webview.postMessage({ type: "navigateToPage", page: result.page });
+        return;
+      }
+    }
+    vscode.window.showInformationMessage(`No preview mapping found for line ${sourceLine}.`);
+  }
+
+  private _activePanel: vscode.WebviewPanel | null = null;
 
   private setupAutoRefresh(
     document: DocxDocument,

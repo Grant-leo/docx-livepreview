@@ -58,6 +58,22 @@ export class WpsRenderer {
     return this._pageCount;
   }
 
+  /** Forward search: navigate to _src_L{line} bookmark, return page number. */
+  async forwardSearch(sourceLine: number): Promise<{ page: number } | null> {
+    const result = await this.python.send("forward_search", { source_line: sourceLine });
+    return result.found ? { page: result.page } : null;
+  }
+
+  /** Reverse search: find nearest _src_L bookmark to (x,y) in PDF points. */
+  async reverseSearch(
+    pageNum: number, x: number, y: number
+  ): Promise<{ sourceLine: number } | null> {
+    const result = await this.python.send("reverse_search", {
+      page_num: pageNum, x, y,
+    });
+    return result.found ? { sourceLine: result.source_line } : null;
+  }
+
   /** Close the current document. */
   async close(): Promise<void> {
     if (this.currentPath) {
