@@ -18,6 +18,8 @@
   // ── DOM refs ──
   const $ = (id) => document.getElementById(id);
   const pageImage = $("pageImage");
+  const imageWrapper = $("imageWrapper");
+  const pageCursor = $("pageCursor");
   const loading = $("loading");
   const errorBox = $("error");
   const errorMsg = $("errorMessage");
@@ -60,6 +62,22 @@
     pageImage.src = "data:image/png;base64," + imageBase64;
     currentPage = page;
     showPage();
+    if (pendingCursor) {
+      var c = pendingCursor;
+      pendingCursor = null;
+      // Wait for image to load before positioning cursor
+      var onLoad = function () {
+        pageImage.removeEventListener("load", onLoad);
+        showSingleCursor(c.x, c.y);
+      };
+      if (pageImage.complete && pageImage.naturalWidth > 0) {
+        showSingleCursor(c.x, c.y);
+      } else {
+        pageImage.addEventListener("load", onLoad);
+      }
+    } else {
+      requestAnimationFrame(function () { showCursorsForPage(page); });
+    }
   }
 
   function clampZoom(v) {
@@ -70,9 +88,8 @@
 
   function applyZoom() {
     zoom = clampZoom(zoom);
-    console.log("[viewer] applyZoom: zoom=" + zoom + "% naturalWidth=" + pageImage.naturalWidth + "px");
-    pageImage.style.transform = `scale(${zoom / 100})`;
-    pageImage.style.transformOrigin = "top center";
+    imageWrapper.style.transform = `scale(${zoom / 100})`;
+    imageWrapper.style.transformOrigin = "top center";
     zoomSlider.value = String(zoom);
     zoomInput.value = String(zoom);
     zoomLabel.textContent = zoom + "%";
@@ -89,6 +106,61 @@
       vscode.postMessage({ type: "requestPage", page });
     }
   }
+
+  // ── Cursor indicators (SyncTeX bidirectional linking) ──
+
+  /** Show a single cursor at PDF-coordinate (pdfX, pdfY) — used by forward search. */
+  function showSingleCursor(pdfX, pdfY) {
+    hideAllCursors();
+    cursorX = pdfX * (dpi / 72);
+    cursorY = pdfY * (dpi / 72);
+    pendingCursor = null;
+    pageCursor.style.left = Math.round(cursorX) + "px";
+    pageCursor.style.top = Math.round(cursorY - 12) + "px";
+    pageCursor.style.height = "24px";
+    pageCursor.classList.remove("hidden");
+  }
+
+  /** Show all bookmark cursors for a given page. */
+  function showCursorsForPage(page) {
+    hideAllCursors();
+    var keys = Object.keys(bookmarkPositions);
+    var shownAny = false;
+    for (var i = 0; i < keys.length; i++) {
+      var pos = bookmarkPositions[keys[i]];
+      if (pos.page !== page) { continue; }
+      var cx = pos.x * (dpi / 72);
+      var cy = pos.y * (dpi / 72);
+      var el = createCursorEl(cx, cy);
+      imageWrapper.appendChild(el);
+      cursorEls.push(el);
+      shownAny = true;
+    }
+  }
+
+  function createCursorEl(left, top) {
+    var el = document.createElement("div");
+    el.className = "bookmarkCursor";
+    el.style.left = Math.round(left) + "px";
+    el.style.top = Math.round(top - 12) + "px";
+    el.style.height = "24px";
+    return el;
+  }
+
+  function hideAllCursors() {
+    pendingCursor = null;
+    pageCursor.classList.add("hidden");
+    for (var i = 0; i < cursorEls.length; i++) {
+      cursorEls[i].remove();
+    }
+    cursorEls = [];
+  }
+
+  var cursorX = 0;
+  var cursorY = 0;
+  var pendingCursor = null;
+  var bookmarkPositions = {};  // { sourceLine: { page, x, y } }
+  var cursorEls = [];
 
   // ── Message handler ──
   window.addEventListener("message", (event) => {
@@ -122,7 +194,42 @@
         break;
 
       case "navigateToPage":
+        hideAllCursors();
         goToPage(msg.page);
+        if (msg.x !== undefined && msg.y !== undefined) {
+          // Single-cursor mode (from forward search)
+          pendingCursor = { x: msg.x, y: msg.y };
+          if (pageImage.src && pageImage.naturalWidth > 0) {
+            requestAnimationFrame(function () {
+              if (pendingCursor) showSingleCursor(pendingCursor.x, pendingCursor.y);
+            });
+          }
+        } else {
+          // Show all bookmarks for the target page
+          requestAnimationFrame(function () { showCursorsForPage(msg.page); });
+        }
+        break;
+
+      case "bookmarkPositions":
+        bookmarkPositions = msg.positions || {};
+        // Show cursors for the currently visible page
+        if (pageImage.src && pageImage.naturalWidth > 0) {
+          requestAnimationFrame(function () { showCursorsForPage(currentPage); });
+        }
+        break;
+
+      case "requestReverseSearch":
+        // Command-palette reverse search: use current page center
+        if (pageImage.naturalWidth > 0 && pageImage.naturalHeight > 0) {
+          var cx = (pageImage.naturalWidth / 2) * (72 / dpi);
+          var cy = (pageImage.naturalHeight / 2) * (72 / dpi);
+          vscode.postMessage({
+            type: "reverseSearch",
+            page: currentPage,
+            x: Math.round(cx),
+            y: Math.round(cy),
+          });
+        }
         break;
 
       case "error":

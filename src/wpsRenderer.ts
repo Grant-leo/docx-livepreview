@@ -58,10 +58,10 @@ export class WpsRenderer {
     return this._pageCount;
   }
 
-  /** Forward search: navigate to _src_L{line} bookmark, return page number. */
-  async forwardSearch(sourceLine: number): Promise<{ page: number } | null> {
+  /** Forward search: navigate to _src_L{line} bookmark, return page + position in PDF points. */
+  async forwardSearch(sourceLine: number): Promise<{ page: number; x: number; y: number } | null> {
     const result = await this.python.send("forward_search", { source_line: sourceLine });
-    return result.found ? { page: result.page } : null;
+    return result.found ? { page: result.page, x: result.x, y: result.y } : null;
   }
 
   /** Reverse search: find nearest _src_L bookmark to (x,y) in PDF points. */
@@ -72,6 +72,12 @@ export class WpsRenderer {
       page_num: pageNum, x, y,
     });
     return result.found ? { sourceLine: result.source_line } : null;
+  }
+
+  /** Get page + position for all _src_L bookmarks. Returns {sourceLine: {page, x, y}}. */
+  async getAllBookmarkPositions(): Promise<Record<string, { page: number; x: number; y: number }>> {
+    const result = await this.python.send("get_bookmark_positions", {});
+    return result.positions || {};
   }
 
   /** Close the current document. */

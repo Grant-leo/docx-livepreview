@@ -87,12 +87,38 @@ body {
   text-align: center;
 }
 
+#imageWrapper {
+  display: inline-block;
+  position: relative;
+  transform-origin: top center;
+  transition: transform 0.1s ease;
+}
+
 #pageImage {
   display: block;
-  margin: 0 auto;
   box-shadow: 0 2px 16px rgba(0, 0, 0, 0.5);
   background: white;
-  transition: transform 0.1s ease;
+}
+
+/* ── SyncTeX cursor indicator ── */
+#pageCursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  width: 2px;
+  background: #ff4444;
+  border-radius: 1px;
+  animation: cursorBlink 0.8s ease-in-out infinite;
+}
+
+.bookmarkCursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 9;
+  width: 3px;
+  background: rgba(255, 140, 0, 0.85);
+  border-radius: 1.5px;
+  box-shadow: 0 0 6px rgba(255, 140, 0, 0.4);
 }
 
 /* ── Loading ── */
@@ -117,6 +143,11 @@ body {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
 }
 
 /* ── Error ── */

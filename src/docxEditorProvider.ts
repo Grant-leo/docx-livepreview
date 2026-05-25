@@ -133,20 +133,31 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
     // ── Background: pre-render remaining pages ──
     if (pageCount > 1) {
-      this.renderer.renderAllPages(pageCount <= 10 ? dpi : 150).then((pages) => {
+      const prerenderDpi = pageCount <= 10 ? dpi : 150;
+      this.renderer.renderAllPages(prerenderDpi).then((pages) => {
         const data = pages as { page: number; image: string }[];
         webviewPanel.webview.postMessage({
           type: "setAllPages",
           pages: data,
           totalPages: pageCount,
-  
+
           zoom,
-          dpi,
+          dpi: prerenderDpi,
         });
       }).catch(() => {
         // Background pre-render failures are silent
       });
     }
+
+    // ── Fetch bookmark positions for cursor overlay ──
+    this.renderer.getAllBookmarkPositions().then((positions) => {
+      webviewPanel.webview.postMessage({
+        type: "bookmarkPositions",
+        positions,
+      });
+    }).catch(() => {
+      // Non-critical; cursors just won't show until a forward search
+    });
 
     // ── Handle webview messages ──
     webviewPanel.webview.onDidReceiveMessage(async (msg) => {
@@ -175,10 +186,11 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
               image: img,
               page: 1,
               totalPages: count,
-      
+
               zoom,
               dpi,
             });
+            await this._autoNavigateToActiveEditorLine(webviewPanel);
             break;
           }
           case "renderAll": {
@@ -237,7 +249,10 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     }
     const document = await vscode.workspace.openTextDocument(buildScript);
     const editor = await vscode.window.showTextDocument(document);
-    const line = Math.max(0, sourceLine - 1); // VSCode lines are 0-based
+    const line = Math.min(
+      Math.max(0, sourceLine - 1),
+      Math.max(0, document.lineCount - 1)
+    ); // VSCode lines are 0-based
     const range = document.lineAt(line).range;
     editor.selection = new vscode.Selection(range.start, range.end);
     editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
@@ -282,11 +297,35 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     if (result) {
       const target = webviewPanel || this._activePanel;
       if (target) {
-        target.webview.postMessage({ type: "navigateToPage", page: result.page });
+        target.webview.postMessage({
+          type: "navigateToPage",
+          page: result.page,
+          x: result.x,
+          y: result.y,
+        });
         return;
       }
     }
     vscode.window.showInformationMessage(`No preview mapping found for line ${sourceLine}.`);
+  }
+
+  /** Reverse search: find source line for current preview page center. */
+  async goToSource(): Promise<void> {
+    if (this._activePanel) {
+      this._activePanel.webview.postMessage({ type: "requestReverseSearch" });
+    } else {
+      vscode.window.showInformationMessage("No preview panel is active.");
+    }
+  }
+
+  /** After refresh, auto-navigate preview to the active editor's cursor line. */
+  private async _autoNavigateToActiveEditorLine(webviewPanel: vscode.WebviewPanel): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) { return; }
+    const doc = editor.document;
+    if (!doc.fileName.endsWith(".py")) { return; }
+    const line = editor.selection.active.line + 1; // 1-based
+    await this.goToSourceLine(line, webviewPanel);
   }
 
   private _activePanel: vscode.WebviewPanel | null = null;
@@ -316,10 +355,11 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
             image: img,
             page: 1,
             totalPages: this.renderer.pageCount,
-    
+
             zoom,
             dpi,
           });
+          await this._autoNavigateToActiveEditorLine(panel);
         } catch {
           // Silently skip auto-refresh errors
         }

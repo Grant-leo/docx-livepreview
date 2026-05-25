@@ -44,8 +44,13 @@ class WpsRenderer:
 
     RPC_E_SERVER_UNAVAILABLE = -2147023174  # 0x800706BA
 
+    def _is_rpc_failure(self, exc):
+        hr = getattr(exc, "hresult", 0)
+        return hr == self.RPC_E_SERVER_UNAVAILABLE or "RPC" in str(exc).upper()
+
     def _reset_wps(self):
         """Force-reset WPS COM connection after RPC failure."""
+        pdf_path = self.pdf_path
         try:
             if self.doc is not None:
                 self.doc = None
@@ -57,8 +62,14 @@ class WpsRenderer:
         except Exception:
             pass
         self.document_open = False
-        self.pdf_path = None
         self._src_bookmarks = {}
+        self._sync_lines = []
+        if pdf_path and os.path.exists(pdf_path):
+            try:
+                os.unlink(pdf_path)
+            except Exception:
+                pass
+        self.pdf_path = None
 
     def _ensure_wps(self):
         """Start WPS COM server (lazy, first use). Auto-recovers from RPC failures."""
@@ -77,8 +88,7 @@ class WpsRenderer:
                 _ = self.app.Name  # probe the COM object
                 return
             except Exception as e:
-                if getattr(e, "hresult", 0) == self.RPC_E_SERVER_UNAVAILABLE \
-                   or "RPC" in str(e).upper():
+                if self._is_rpc_failure(e):
                     self._reset_wps()
                 else:
                     raise
@@ -101,16 +111,50 @@ class WpsRenderer:
         self.app.Visible = False
         self.app.DisplayAlerts = 0  # wdAlertsNone — suppress all dialogs
 
-    def _call_com(self, fn, *args, **kwargs):
+    def _recover_wps(self, reopen_doc=False):
+        """Reconnect WPS and optionally reopen the current document."""
+        current_path = getattr(self, "_current_path", None)
+        current_dpi = self._dpi
+        should_reopen = reopen_doc and self.document_open and current_path
+        self._reset_wps()
+        self._ensure_wps()
+        if should_reopen:
+            self.doc = self.app.Documents.Open(str(Path(current_path).absolute()))
+            self._dpi = current_dpi
+            self.document_open = True
+            self.page_count = self._get_page_count()
+            self._build_bookmark_cache()
+
+    def _call_com(self, operation, reopen_doc=False):
         """Call a COM operation with automatic RPC recovery + one retry."""
         try:
-            return fn(*args, **kwargs)
+            return operation()
         except Exception as e:
-            hr = getattr(e, "hresult", 0)
-            if hr == self.RPC_E_SERVER_UNAVAILABLE or "RPC" in str(e).upper():
-                self._ensure_wps()  # probes, resets if dead, reconnects
-                return fn(*args, **kwargs)
+            if self._is_rpc_failure(e):
+                self._recover_wps(reopen_doc=reopen_doc)
+                return operation()
             raise
+
+    def _get_page_count(self):
+        """Get page count using multiple WPS APIs."""
+        try:
+            return self._call_com(lambda: self.doc.ComputeStatistics(2), reopen_doc=True)
+        except Exception:
+            try:
+                return self._call_com(lambda: self.doc.Content.Information(4), reopen_doc=True)
+            except Exception:
+                return self._call_com(
+                    lambda: self.doc.ActiveWindow.ActivePane.Pages.Count,
+                    reopen_doc=True,
+                )
+
+    def _bookmark_position(self, bookmark_name):
+        """Go to a bookmark and return its page-relative position."""
+        self.app.Selection.GoTo(What=-1, Name=bookmark_name)
+        page = self.app.Selection.Information(3)  # wdActiveEndPageNumber
+        pos_x = self.app.Selection.Information(5)  # wdHorizontalPositionRelativeToPage
+        pos_y = self.app.Selection.Information(6)  # wdVerticalPositionRelativeToPage
+        return {"page": page, "x": pos_x, "y": pos_y}
 
     def warm_up(self):
         """Pre-start WPS COM so first open_document is instant."""
@@ -162,9 +206,7 @@ class WpsRenderer:
 
         abs_path = str(path.absolute())
         try:
-            self.doc = self._call_com(
-                self.app.Documents.Open, abs_path
-            )
+            self.doc = self._call_com(lambda: self.app.Documents.Open(abs_path))
         except Exception as e:
             msg = str(e)
             if "password" in msg.lower() or "encrypt" in msg.lower():
@@ -177,62 +219,72 @@ class WpsRenderer:
             raise RuntimeError("WPS returned no document object — file may be protected or corrupted")
 
         # Get page count — try multiple methods for robustness
-        try:
-            self.page_count = self.doc.ComputeStatistics(2)  # wdStatisticPages
-        except Exception:
-            try:
-                self.page_count = self.doc.Content.Information(4)  # wdNumberOfPagesInDocument
-            except Exception:
-                self.page_count = self.doc.ActiveWindow.ActivePane.Pages.Count
-
         self.document_open = True
+        self.page_count = self._get_page_count()
         self._build_bookmark_cache()
         return self.page_count
 
     def _build_bookmark_cache(self):
-        """Read DOCX XML via python-docx to find _src_L* bookmarks.
+        """Read DOCX XML to find _src_L* bookmarks and paragraph text.
 
-        WPS COM Bookmarks doesn't support iteration, so we parse the
-        document XML directly to map source lines to paragraph indices
-        and text samples for reverse search.
+        Uses zipfile + ElementTree directly to avoid file-lock conflicts
+        with WPS COM. python-docx can fail when WPS has the file open.
         """
+        import zipfile
+        import xml.etree.ElementTree as ET
+
         self._src_bookmarks = {}  # name -> (para_idx, text_sample)
         self._sync_lines = []
         try:
-            from docx import Document as DocxReader
-            reader = DocxReader(self._current_path)
-            for para_idx, para in enumerate(reader.paragraphs):
-                el = para._element
-                for child in el:
-                    tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-                    if tag == "bookmarkStart":
-                        wml = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-                        name = child.get(f"{wml}name") or child.get("w:name") or ""
-                        if name.startswith("_src_L"):
-                            line = int(name.replace("_src_L", ""))
-                            self._src_bookmarks[name] = (
-                                para_idx,
-                                para.text[:80] if para.text else ""
-                            )
-                            self._sync_lines.append(line)
+            wml = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+            with zipfile.ZipFile(self._current_path, "r") as zf:
+                with zf.open("word/document.xml") as f:
+                    tree = ET.parse(f)
+
+            for para_idx, p in enumerate(tree.iter(f"{wml}p")):
+                parts = []
+                for t in p.iter(f"{wml}t"):
+                    if t.text:
+                        parts.append(t.text)
+                para_text = "".join(parts)
+
+                for bm in p.iter(f"{wml}bookmarkStart"):
+                    name = bm.get(f"{wml}name", "")
+                    if name.startswith("_src_L"):
+                        try:
+                            line = int(name[6:])  # remove "_src_L" prefix
+                        except ValueError:
+                            continue
+                        self._src_bookmarks[name] = (
+                            para_idx,
+                            para_text[:80] if para_text else "",
+                        )
+                        self._sync_lines.append(line)
             self._sync_lines.sort()
-        except Exception:
+        except Exception as e:
+            print(f"[DOCX] Bookmark cache build failed: {e}", file=sys.stderr)
             self._src_bookmarks = {}
             self._sync_lines = []
 
     def forward_search(self, source_line):
-        """Navigate to _src_L{line} bookmark and return page number."""
+        """Navigate to _src_L{line} bookmark and return page + position.
+
+        If exact line not found, falls back to the nearest cached bookmark.
+        Returns (page, x, y) in PDF points for cursor placement in the preview.
+        """
         bookmark_name = f"_src_L{source_line}"
         if bookmark_name not in self._src_bookmarks:
-            return {"found": False}
+            if self._sync_lines:
+                nearest = min(self._sync_lines, key=lambda l: abs(l - source_line))
+                bookmark_name = f"_src_L{nearest}"
+            else:
+                return {"found": False}
         try:
-            self._call_com(
-                self.app.Selection.GoTo, What=-1, Name=bookmark_name
+            pos = self._call_com(
+                lambda: self._bookmark_position(bookmark_name),
+                reopen_doc=True,
             )
-            page = self._call_com(
-                self.app.Selection.Information, 3
-            )
-            return {"page": page, "found": True}
+            return {"page": pos["page"], "x": pos["x"], "y": pos["y"], "found": True}
         except Exception:
             return {"found": False}
 
@@ -278,6 +330,27 @@ class WpsRenderer:
             return {"source_line": best_line, "found": True}
         return {"found": False}
 
+    def get_bookmark_positions(self):
+        """Get page + position for every _src_L bookmark via COM.
+
+        Returns {source_line: {page, x, y}} for all cached bookmarks.
+        Called once after document open to seed the preview with cursors.
+        """
+        if not self._src_bookmarks:
+            return {"positions": {}}
+        positions = {}
+        for name in self._src_bookmarks:
+            try:
+                pos = self._call_com(
+                    lambda name=name: self._bookmark_position(name),
+                    reopen_doc=True,
+                )
+                line = int(name[6:])
+                positions[str(line)] = pos
+            except Exception:
+                pass
+        return {"positions": positions}
+
     def _export_pdf(self):
         """Export current document to temporary PDF. Returns path."""
         if not self.document_open or self.doc is None:
@@ -292,7 +365,8 @@ class WpsRenderer:
 
         try:
             self._call_com(
-                self.doc.ExportAsFixedFormat, pdf_path, self.PDF_FORMAT
+                lambda: self.doc.ExportAsFixedFormat(pdf_path, self.PDF_FORMAT),
+                reopen_doc=True,
             )
         except Exception:
             # Clean up temp file on failure
@@ -362,8 +436,10 @@ class WpsRenderer:
         """Close document and clean up temp file."""
         if self.doc is not None:
             try:
-                self._call_com(self.doc.Close)
-            except Exception:
+                self.doc.Close()
+            except Exception as e:
+                if self._is_rpc_failure(e):
+                    self._reset_wps()
                 pass
             self.doc = None
         if self.pdf_path and os.path.exists(self.pdf_path):
@@ -380,7 +456,7 @@ class WpsRenderer:
         self.close()
         if self.app is not None:
             try:
-                self._call_com(self.app.Quit)
+                self.app.Quit()
             except Exception:
                 pass
             self.app = None
@@ -444,6 +520,8 @@ def main():
                 result = renderer.reverse_search(
                     params["page_num"], params["x"], params["y"]
                 )
+            elif method == "get_bookmark_positions":
+                result = renderer.get_bookmark_positions()
             elif method == "close_document":
                 renderer.close()
                 result = {"ok": True}

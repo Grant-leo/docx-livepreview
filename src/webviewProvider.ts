@@ -57,7 +57,10 @@ export function getHtmlForWebview(
       <button id="btnRetry">Retry</button>
     </div>
     <div id="canvasArea">
-      <img id="pageImage" src="" alt="DOCX Page">
+      <div id="imageWrapper">
+        <img id="pageImage" src="" alt="DOCX Page">
+        <div id="pageCursor" class="hidden" title="Source line position"></div>
+      </div>
     </div>
   </div>
 
