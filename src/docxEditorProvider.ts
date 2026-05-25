@@ -19,11 +19,19 @@ class DocxDocument implements vscode.CustomDocument {
   dispose(): void {}
 }
 
+interface PreviewNavigationOptions {
+  reveal?: boolean;
+  preserveFocus?: boolean;
+  silent?: boolean;
+}
+
 export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<DocxDocument> {
   private renderer: WpsRenderer | null = null;
   private fileWatcher: vscode.FileSystemWatcher | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private currentDocxPath: string = "";
+  private _activePanel: vscode.WebviewPanel | null = null;
+  private _pendingSourceLine: number | null = null;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -150,7 +158,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     }
 
     // ── Fetch bookmark positions for cursor overlay ──
-    this.renderer.getAllBookmarkPositions().then((positions) => {
+    const bookmarkPositionsReady = this.renderer.getAllBookmarkPositions().then((positions) => {
       webviewPanel.webview.postMessage({
         type: "bookmarkPositions",
         positions,
@@ -216,6 +224,12 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
             }
             break;
           }
+          case "reverseSearchLine": {
+            if (typeof msg.sourceLine === "number") {
+              await this.openSourceLine(msg.sourceLine);
+            }
+            break;
+          }
         }
       } catch (e: any) {
         webviewPanel.webview.postMessage({
@@ -226,6 +240,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     });
 
     // ── Auto-refresh on file change ──
+    await bookmarkPositionsReady;
+    await this._navigateToPendingSourceLine(webviewPanel);
+
     if (getAutoRefresh()) {
       this.setupAutoRefresh(document, webviewPanel);
     }
@@ -233,9 +250,14 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     // ── Cleanup on close ──
     webviewPanel.onDidDispose(() => {
       this.cleanupWatcher();
+      if (this._activePanel === webviewPanel) {
+        this._activePanel = null;
+      }
       if (this.renderer) {
         this.renderer.close().catch(() => { /* best-effort */ });
+        this.renderer = null;
       }
+      this.currentDocxPath = "";
     });
   }
 
@@ -284,38 +306,134 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 
   private _matchPattern(filename: string, pattern: string): boolean {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(
-      "^" + pattern.replace(/\*/g, ".*").replace(/_/g, ".") + "$"
+      "^" + escaped.replace(/\*/g, ".*") + "$"
     );
     return re.test(filename);
   }
 
+  /** Open or reveal the DOCX preview, then navigate it to the active source line. */
+  async goToPreviewFromEditor(editor: vscode.TextEditor): Promise<void> {
+    const sourceLine = editor.selection.active.line + 1; // 1-based
+    const target = this._activePanel;
+    if (this.renderer && target) {
+      await this.goToSourceLine(sourceLine, target, { reveal: true });
+      return;
+    }
+
+    const docxUri = await this.findDocxForEditor(editor.document);
+    if (!docxUri) {
+      vscode.window.showInformationMessage("No DOCX file found for the active source editor.");
+      return;
+    }
+
+    this._pendingSourceLine = sourceLine;
+    await vscode.commands.executeCommand(
+      "vscode.openWith",
+      docxUri,
+      "docx.docxPreview",
+      { preview: false }
+    );
+  }
+
   /** Forward search: navigate preview to page containing sourceLine. */
-  async goToSourceLine(sourceLine: number, webviewPanel?: vscode.WebviewPanel): Promise<void> {
-    if (!this.renderer) { return; }
+  async goToSourceLine(
+    sourceLine: number,
+    webviewPanel?: vscode.WebviewPanel,
+    options: PreviewNavigationOptions = {}
+  ): Promise<boolean> {
+    if (!this.renderer) {
+      if (!options.silent) {
+        vscode.window.showInformationMessage("No preview renderer is active.");
+      }
+      return false;
+    }
+
     const result = await this.renderer.forwardSearch(sourceLine);
-    if (result) {
-      const target = webviewPanel || this._activePanel;
-      if (target) {
-        target.webview.postMessage({
-          type: "navigateToPage",
-          page: result.page,
-          x: result.x,
-          y: result.y,
-        });
-        return;
+    const target = webviewPanel || this._activePanel;
+    if (result && target) {
+      if (options.reveal !== false) {
+        target.reveal(target.viewColumn, options.preserveFocus ?? false);
+      }
+      const posted = await target.webview.postMessage({
+        type: "navigateToPage",
+        page: result.page,
+        x: result.x,
+        y: result.y,
+      });
+      if (posted) {
+        return true;
       }
     }
-    vscode.window.showInformationMessage(`No preview mapping found for line ${sourceLine}.`);
+
+    if (!options.silent) {
+      vscode.window.showInformationMessage(`No preview mapping found for line ${sourceLine}.`);
+    }
+    return false;
   }
 
   /** Reverse search: find source line for current preview page center. */
   async goToSource(): Promise<void> {
     if (this._activePanel) {
-      this._activePanel.webview.postMessage({ type: "requestReverseSearch" });
+      const posted = await this._activePanel.webview.postMessage({ type: "requestReverseSearch" });
+      if (!posted) {
+        vscode.window.showInformationMessage("Preview panel is not ready.");
+      }
     } else {
       vscode.window.showInformationMessage("No preview panel is active.");
     }
+  }
+
+  private async _navigateToPendingSourceLine(webviewPanel: vscode.WebviewPanel): Promise<void> {
+    if (this._pendingSourceLine === null) { return; }
+    const sourceLine = this._pendingSourceLine;
+    this._pendingSourceLine = null;
+    await this.goToSourceLine(sourceLine, webviewPanel, { reveal: true });
+  }
+
+  private async findDocxForEditor(document: vscode.TextDocument): Promise<vscode.Uri | null> {
+    if (this.currentDocxPath && fs.existsSync(this.currentDocxPath)) {
+      return vscode.Uri.file(this.currentDocxPath);
+    }
+
+    const sourcePath = document.uri.scheme === "file" ? document.uri.fsPath : "";
+    if (sourcePath) {
+      const sameDirMatch = this.pickMostRecentDocx(this.findDocxFilesInDir(path.dirname(sourcePath)));
+      if (sameDirMatch) { return sameDirMatch; }
+    }
+
+    const workspaceMatches = await vscode.workspace.findFiles("**/*.docx", "**/~$*.docx", 20);
+    return this.pickMostRecentDocx(workspaceMatches);
+  }
+
+  private findDocxFilesInDir(dir: string): vscode.Uri[] {
+    try {
+      return fs.readdirSync(dir)
+        .filter((file) => this.isPreviewableDocx(file))
+        .map((file) => vscode.Uri.file(path.join(dir, file)));
+    } catch {
+      return [];
+    }
+  }
+
+  private pickMostRecentDocx(uris: vscode.Uri[]): vscode.Uri | null {
+    const candidates = uris
+      .filter((uri) => this.isPreviewableDocx(path.basename(uri.fsPath)))
+      .map((uri) => {
+        try {
+          return { uri, mtimeMs: fs.statSync(uri.fsPath).mtimeMs };
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry): entry is { uri: vscode.Uri; mtimeMs: number } => entry !== null)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return candidates[0]?.uri || null;
+  }
+
+  private isPreviewableDocx(filename: string): boolean {
+    return filename.toLowerCase().endsWith(".docx") && !filename.startsWith("~$");
   }
 
   /** After refresh, auto-navigate preview to the active editor's cursor line. */
@@ -325,10 +443,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const doc = editor.document;
     if (!doc.fileName.endsWith(".py")) { return; }
     const line = editor.selection.active.line + 1; // 1-based
-    await this.goToSourceLine(line, webviewPanel);
+    await this.goToSourceLine(line, webviewPanel, { reveal: false, silent: true });
   }
-
-  private _activePanel: vscode.WebviewPanel | null = null;
 
   private setupAutoRefresh(
     document: DocxDocument,

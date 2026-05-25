@@ -1,8 +1,7 @@
 /**
  * extension.ts — Entry point for word-chat-livepreview VSCode extension.
  *
- * Registers the CustomTextEditorProvider for .docx files and
- * pre-warms the Python + WPS COM renderer on activation.
+ * Registers the CustomTextEditorProvider for .docx files.
  */
 import * as vscode from "vscode";
 import { DocxEditorProvider } from "./docxEditorProvider";
@@ -19,13 +18,8 @@ export function activate(context: vscode.ExtensionContext) {
     return;
   }
 
-  // Pre-warm Python + WPS COM in background so first open is fast
+  // Initialize the singleton; the renderer process is started lazily when needed.
   pythonManager = getPythonManager(context.extensionPath);
-  pythonManager.start().then(() => {
-    return pythonManager!.ensureWarmedUp();
-  }).catch((e) => {
-    console.error("[DOCX] Failed to start Python renderer:", e);
-  });
 
   // Register custom editor for .docx files
   const provider = new DocxEditorProvider(context);
@@ -42,14 +36,13 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register commands
   context.subscriptions.push(
-    vscode.commands.registerCommand("docx.goToPreview", () => {
+    vscode.commands.registerCommand("docx.goToPreview", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
         vscode.window.showInformationMessage("No active editor.");
         return;
       }
-      const line = editor.selection.active.line + 1; // 1-based
-      provider.goToSourceLine(line);
+      await provider.goToPreviewFromEditor(editor);
     })
   );
 
@@ -93,6 +86,70 @@ export function activate(context: vscode.ExtensionContext) {
       );
     })
   );
+
+  setTimeout(() => {
+    const hasDocxTab = hasOpenDocxTab();
+    if (hasDocxTab) {
+      warmUpRenderer();
+    }
+    reopenOpenDocxTabsWithPreview().catch((e) => {
+      console.error("[DOCX] Failed to restore DOCX preview tabs:", e);
+    });
+  }, 800);
+}
+
+function warmUpRenderer(): void {
+  if (!pythonManager) { return; }
+  pythonManager.start().then(() => {
+    return pythonManager!.ensureWarmedUp();
+  }).catch((e) => {
+    console.error("[DOCX] Failed to start Python renderer:", e);
+  });
+}
+
+function hasOpenDocxTab(): boolean {
+  return vscode.window.tabGroups.all.some((group) =>
+    group.tabs.some((tab) => {
+      const uri = getTabInputUri(tab.input);
+      return uri ? isDocxUri(uri) : false;
+    })
+  );
+}
+
+async function reopenOpenDocxTabsWithPreview(): Promise<void> {
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (isDocxPreviewTab(tab.input)) { continue; }
+      const uri = getTabInputUri(tab.input);
+      if (!uri || !isDocxUri(uri)) { continue; }
+      await vscode.commands.executeCommand(
+        "vscode.openWith",
+        uri,
+        "docx.docxPreview",
+        {
+          preview: false,
+          preserveFocus: !tab.isActive,
+          viewColumn: group.viewColumn,
+        }
+      );
+    }
+  }
+}
+
+function getTabInputUri(input: unknown): vscode.Uri | undefined {
+  const maybeInput = input as { uri?: vscode.Uri };
+  return maybeInput.uri instanceof vscode.Uri ? maybeInput.uri : undefined;
+}
+
+function isDocxPreviewTab(input: unknown): boolean {
+  return input instanceof vscode.TabInputCustom && input.viewType === "docx.docxPreview";
+}
+
+function isDocxUri(uri: vscode.Uri): boolean {
+  const basename = uri.fsPath.split(/[\\/]/).pop() || "";
+  return uri.scheme === "file" &&
+    basename.toLowerCase().endsWith(".docx") &&
+    !basename.startsWith("~$");
 }
 
 export async function deactivate() {

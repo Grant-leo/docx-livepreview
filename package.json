@@ -1,7 +1,7 @@
 {
   "name": "docx-livepreview",
   "displayName": "DOCX Live Preview",
-  "description": "WPS-native DOCX preview for academic papers — OMML math, CJK fonts, three-line tables rendered pixel-perfect via WPS COM engine",
+  "description": "WPS-native DOCX preview for academic papers, with OMML math, CJK fonts, source sync, and WPS-rendered layout.",
   "version": "0.2.1",
   "publisher": "docx-chat",
   "icon": "media/icon.png",
@@ -23,7 +23,13 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onCustomEditor:docx.docxPreview"
+    "onCustomEditor:docx.docxPreview",
+    "onCommand:docx.goToPreview",
+    "onCommand:docx.goToSource",
+    "onCommand:docx.openPreview",
+    "onCommand:docx.refreshPreview",
+    "onCommand:docx.toggleAutoRefresh",
+    "onStartupFinished"
   ],
   "contributes": {
     "customEditors": [
@@ -38,6 +44,11 @@
         "priority": "default"
       }
     ],
+    "configurationDefaults": {
+      "workbench.editorAssociations": {
+        "*.docx": "docx.docxPreview"
+      }
+    },
     "commands": [
       {
         "command": "docx.goToPreview",

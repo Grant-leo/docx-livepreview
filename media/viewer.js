@@ -95,8 +95,11 @@
     zoomLabel.textContent = zoom + "%";
   }
 
-  function goToPage(page) {
+  function goToPage(page, options) {
     if (page < 1 || page > totalPages) { return; }
+    if (!options || !options.keepCursor) {
+      hideAllCursors();
+    }
     currentPage = page;
     if (pageImages.has(page)) {
       displayPage(pageImages.get(page), page);
@@ -111,10 +114,11 @@
 
   /** Show a single cursor at PDF-coordinate (pdfX, pdfY) — used by forward search. */
   function showSingleCursor(pdfX, pdfY) {
-    hideAllCursors();
+    removeBookmarkCursors();
     cursorX = pdfX * (dpi / 72);
     cursorY = pdfY * (dpi / 72);
     pendingCursor = null;
+    singleCursorActive = true;
     pageCursor.style.left = Math.round(cursorX) + "px";
     pageCursor.style.top = Math.round(cursorY - 12) + "px";
     pageCursor.style.height = "24px";
@@ -123,6 +127,7 @@
 
   /** Show all bookmark cursors for a given page. */
   function showCursorsForPage(page) {
+    if (singleCursorActive) { return; }
     hideAllCursors();
     var keys = Object.keys(bookmarkPositions);
     var shownAny = false;
@@ -149,7 +154,12 @@
 
   function hideAllCursors() {
     pendingCursor = null;
+    singleCursorActive = false;
     pageCursor.classList.add("hidden");
+    removeBookmarkCursors();
+  }
+
+  function removeBookmarkCursors() {
     for (var i = 0; i < cursorEls.length; i++) {
       cursorEls[i].remove();
     }
@@ -159,6 +169,7 @@
   var cursorX = 0;
   var cursorY = 0;
   var pendingCursor = null;
+  var singleCursorActive = false;
   var bookmarkPositions = {};  // { sourceLine: { page, x, y } }
   var cursorEls = [];
 
@@ -195,16 +206,17 @@
 
       case "navigateToPage":
         hideAllCursors();
-        goToPage(msg.page);
         if (msg.x !== undefined && msg.y !== undefined) {
           // Single-cursor mode (from forward search)
           pendingCursor = { x: msg.x, y: msg.y };
+          goToPage(msg.page, { keepCursor: true });
           if (pageImage.src && pageImage.naturalWidth > 0) {
             requestAnimationFrame(function () {
               if (pendingCursor) showSingleCursor(pendingCursor.x, pendingCursor.y);
             });
           }
         } else {
+          goToPage(msg.page);
           // Show all bookmarks for the target page
           requestAnimationFrame(function () { showCursorsForPage(msg.page); });
         }
@@ -219,15 +231,23 @@
         break;
 
       case "requestReverseSearch":
-        // Command-palette reverse search: use current page center
+        // Command-palette reverse search: prefer the nearest source bookmark
+        // to the visible page center, then fall back to PDF text hit-testing.
         if (pageImage.naturalWidth > 0 && pageImage.naturalHeight > 0) {
-          var cx = (pageImage.naturalWidth / 2) * (72 / dpi);
-          var cy = (pageImage.naturalHeight / 2) * (72 / dpi);
+          var center = visibleCenterDocCoords();
+          var sourceLine = nearestBookmarkLine(center.docX, center.docY);
+          if (sourceLine !== null) {
+            vscode.postMessage({
+              type: "reverseSearchLine",
+              sourceLine: sourceLine,
+            });
+            break;
+          }
           vscode.postMessage({
             type: "reverseSearch",
             page: currentPage,
-            x: Math.round(cx),
-            y: Math.round(cy),
+            x: center.docX,
+            y: center.docY,
           });
         }
         break;
@@ -295,6 +315,39 @@ $("btnZoom100").addEventListener("click", () => {
     const docX = (imgX / (zoom / 100)) * (72 / dpi);
     const docY = (imgY / (zoom / 100)) * (72 / dpi);
     return { docX: Math.round(docX), docY: Math.round(docY) };
+  }
+
+  function visibleCenterDocCoords() {
+    const imageRect = pageImage.getBoundingClientRect();
+    const areaRect = canvasArea.getBoundingClientRect();
+    const centerX = Math.min(
+      Math.max(areaRect.left + areaRect.width / 2, imageRect.left),
+      imageRect.right
+    );
+    const centerY = Math.min(
+      Math.max(areaRect.top + areaRect.height / 2, imageRect.top),
+      imageRect.bottom
+    );
+    return clickToDocCoords(centerX, centerY);
+  }
+
+  function nearestBookmarkLine(docX, docY) {
+    var bestLine = null;
+    var bestDist = Infinity;
+    var keys = Object.keys(bookmarkPositions);
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var pos = bookmarkPositions[key];
+      if (!pos || Number(pos.page) !== currentPage) { continue; }
+      var dx = Number(pos.x) - docX;
+      var dy = Number(pos.y) - docY;
+      var dist = dx * dx + dy * dy;
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestLine = Number(key);
+      }
+    }
+    return bestLine;
   }
 
   pageImage.addEventListener("click", function (e) {
