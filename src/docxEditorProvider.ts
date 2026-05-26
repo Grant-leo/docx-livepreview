@@ -220,7 +220,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
             if (result) {
               await this.openSourceLine(result.sourceLine);
             } else {
-              vscode.window.showInformationMessage("No source mapping found at this position.");
+              this.showTransientInfo("No source mapping found at this position.");
             }
             break;
           }
@@ -264,7 +264,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private async openSourceLine(sourceLine: number): Promise<void> {
     const buildScript = this.findBuildScript();
     if (!buildScript) {
-      vscode.window.showErrorMessage(
+      this.showTransientInfo(
         "No build script found. Set 'docx.sourceScript' to the path of your Python build script."
       );
       return;
@@ -324,7 +324,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
     const docxUri = await this.findDocxForEditor(editor.document);
     if (!docxUri) {
-      vscode.window.showInformationMessage("No DOCX file found for the active source editor.");
+      this.showTransientInfo("No DOCX file found for the active source editor.");
       return;
     }
 
@@ -345,7 +345,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   ): Promise<boolean> {
     if (!this.renderer) {
       if (!options.silent) {
-        vscode.window.showInformationMessage("No preview renderer is active.");
+        this.showTransientInfo("No preview renderer is active.");
       }
       return false;
     }
@@ -368,7 +368,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     }
 
     if (!options.silent) {
-      vscode.window.showInformationMessage(`No preview mapping found for line ${sourceLine}.`);
+      this.showTransientInfo(`No preview mapping found for line ${sourceLine}.`);
     }
     return false;
   }
@@ -378,11 +378,15 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     if (this._activePanel) {
       const posted = await this._activePanel.webview.postMessage({ type: "requestReverseSearch" });
       if (!posted) {
-        vscode.window.showInformationMessage("Preview panel is not ready.");
+        this.showTransientInfo("Preview panel is not ready.");
       }
     } else {
-      vscode.window.showInformationMessage("No preview panel is active.");
+      this.showTransientInfo("No preview panel is active.");
     }
+  }
+
+  private showTransientInfo(message: string): void {
+    vscode.window.setStatusBarMessage(`DOCX: ${message}`, 3500);
   }
 
   private async _navigateToPendingSourceLine(webviewPanel: vscode.WebviewPanel): Promise<void> {

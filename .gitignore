@@ -3,3 +3,4 @@ out/
 *.vsix
 ~$*.docx
 e2e_artifacts/
+vsix_backups/
