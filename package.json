@@ -2,7 +2,7 @@
   "name": "docx-livepreview",
   "displayName": "DOCX Live Preview",
   "description": "WPS-native DOCX preview for academic papers, with OMML math, CJK fonts, source sync, and WPS-rendered layout.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "docx-chat",
   "icon": "media/icon.png",
   "repository": "https://github.com/Grant-leo/docx-livepreview",
@@ -28,7 +28,6 @@
     "onCommand:docx.goToSource",
     "onCommand:docx.openPreview",
     "onCommand:docx.refreshPreview",
-    "onCommand:docx.toggleAutoRefresh",
     "onStartupFinished"
   ],
   "contributes": {
@@ -52,12 +51,12 @@
     "commands": [
       {
         "command": "docx.goToPreview",
-        "title": "Go to Preview (SyncTeX)",
+        "title": "Go to Preview",
         "category": "DOCX"
       },
       {
         "command": "docx.goToSource",
-        "title": "Go to Source (SyncTeX)",
+        "title": "Go to Source",
         "category": "DOCX"
       },
       {
@@ -68,11 +67,6 @@
       {
         "command": "docx.refreshPreview",
         "title": "Refresh Preview",
-        "category": "DOCX"
-      },
-      {
-        "command": "docx.toggleAutoRefresh",
-        "title": "Toggle Auto-Refresh",
         "category": "DOCX"
       }
     ],
@@ -92,7 +86,7 @@
         "docx.defaultZoom": {
           "type": "number",
           "default": 100,
-          "minimum": 10,
+          "minimum": 25,
           "maximum": 500,
           "description": "Default zoom percentage"
         },

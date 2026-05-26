@@ -100,7 +100,7 @@ body {
   background: white;
 }
 
-/* ── SyncTeX cursor indicator ── */
+/* ── Source position cursor indicator ── */
 #pageCursor {
   position: absolute;
   pointer-events: none;
@@ -109,16 +109,6 @@ body {
   background: #ff4444;
   border-radius: 1px;
   animation: cursorBlink 0.8s ease-in-out infinite;
-}
-
-.bookmarkCursor {
-  position: absolute;
-  pointer-events: none;
-  z-index: 9;
-  width: 3px;
-  background: rgba(255, 140, 0, 0.85);
-  border-radius: 1.5px;
-  box-shadow: 0 0 6px rgba(255, 140, 0, 0.4);
 }
 
 /* ── Loading ── */

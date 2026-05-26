@@ -37,6 +37,7 @@ class WpsRenderer:
     def __init__(self):
         self.app = None
         self.doc = None
+        self._owns_app = False
         self.pdf_path = None
         self.page_count = 0
         self.document_open = False
@@ -53,14 +54,20 @@ class WpsRenderer:
         pdf_path = self.pdf_path
         try:
             if self.doc is not None:
+                try:
+                    self.doc.Close(False)
+                except Exception:
+                    pass
                 self.doc = None
         except Exception:
             pass
         try:
-            if self.app is not None:
-                self.app = None
+            if self.app is not None and self._owns_app:
+                self.app.Quit()
         except Exception:
             pass
+        self.app = None
+        self._owns_app = False
         self.document_open = False
         self._src_bookmarks = {}
         self._sync_lines = []
@@ -98,7 +105,8 @@ class WpsRenderer:
         last_err = None
         for pid in prog_ids:
             try:
-                self.app = win32com.client.Dispatch(pid)
+                self.app = win32com.client.DispatchEx(pid)
+                self._owns_app = True
                 break
             except Exception as e:
                 last_err = e
@@ -111,6 +119,20 @@ class WpsRenderer:
         self.app.Visible = False
         self.app.DisplayAlerts = 0  # wdAlertsNone — suppress all dialogs
 
+    def _open_document_readonly(self, abs_path):
+        """Open a document for preview without taking edit ownership."""
+        try:
+            return self.app.Documents.Open(
+                abs_path,
+                ReadOnly=True,
+                AddToRecentFiles=False,
+            )
+        except Exception as first_error:
+            try:
+                return self.app.Documents.Open(abs_path, False, True, False)
+            except Exception as second_error:
+                raise second_error from first_error
+
     def _recover_wps(self, reopen_doc=False):
         """Reconnect WPS and optionally reopen the current document."""
         current_path = getattr(self, "_current_path", None)
@@ -119,7 +141,7 @@ class WpsRenderer:
         self._reset_wps()
         self._ensure_wps()
         if should_reopen:
-            self.doc = self.app.Documents.Open(str(Path(current_path).absolute()))
+            self.doc = self._open_document_readonly(str(Path(current_path).absolute()))
             self._dpi = current_dpi
             self.document_open = True
             self.page_count = self._get_page_count()
@@ -206,7 +228,7 @@ class WpsRenderer:
 
         abs_path = str(path.absolute())
         try:
-            self.doc = self._call_com(lambda: self.app.Documents.Open(abs_path))
+            self.doc = self._call_com(lambda: self._open_document_readonly(abs_path))
         except Exception as e:
             msg = str(e)
             if "password" in msg.lower() or "encrypt" in msg.lower():
@@ -407,36 +429,11 @@ class WpsRenderer:
         finally:
             pdf_doc.close()
 
-    def render_all_pages(self, dpi=None):
-        """Render all pages. Returns list of {page, image} dicts."""
-        if dpi is None:
-            dpi = self._dpi
-
-        if not self.pdf_path or not os.path.exists(self.pdf_path):
-            self._export_pdf()
-
-        pdf_doc = fitz.open(self.pdf_path)
-        try:
-            pages = []
-            zoom = dpi / 72.0
-            matrix = fitz.Matrix(zoom, zoom)
-            for i in range(len(pdf_doc)):
-                page = pdf_doc[i]
-                pix = page.get_pixmap(matrix=matrix)
-                img_bytes = pix.tobytes("png")
-                pages.append({
-                    "page": i + 1,
-                    "image": base64.b64encode(img_bytes).decode("ascii"),
-                })
-            return pages
-        finally:
-            pdf_doc.close()
-
     def close(self):
         """Close document and clean up temp file."""
         if self.doc is not None:
             try:
-                self.doc.Close()
+                self.doc.Close(False)
             except Exception as e:
                 if self._is_rpc_failure(e):
                     self._reset_wps()
@@ -456,10 +453,12 @@ class WpsRenderer:
         self.close()
         if self.app is not None:
             try:
-                self.app.Quit()
+                if self._owns_app:
+                    self.app.Quit()
             except Exception:
                 pass
             self.app = None
+            self._owns_app = False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -508,10 +507,6 @@ def main():
                 dpi = params.get("dpi")
                 image = renderer.render_page(params["page"], dpi)
                 result = {"image": image}
-            elif method == "render_all_pages":
-                dpi = params.get("dpi")
-                pages = renderer.render_all_pages(dpi)
-                result = {"pages": pages}
             elif method == "get_page_count":
                 result = {"page_count": renderer.page_count}
             elif method == "forward_search":

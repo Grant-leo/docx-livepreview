@@ -2,15 +2,10 @@
  * wpsRenderer.ts — High-level WPS rendering API.
  *
  * Wraps PythonManager with convenient methods:
- * open, renderPage, renderAllPages, close.
+ * open, renderPage, close.
  */
 import { PythonManager } from "./pythonManager";
 import { getRenderDpi } from "./config";
-
-export interface PageImage {
-  page: number;
-  image: string; // base64 PNG
-}
 
 export class WpsRenderer {
   private python: PythonManager;
@@ -44,14 +39,6 @@ export class WpsRenderer {
     if (dpi !== undefined) { params.dpi = dpi; }
     const result = await this.python.send("render_page", params);
     return result.image;
-  }
-
-  /** Render all pages. Optional dpi override. Returns array of {page, image}. */
-  async renderAllPages(dpi?: number): Promise<PageImage[]> {
-    const params: Record<string, any> = {};
-    if (dpi !== undefined) { params.dpi = dpi; }
-    const result = await this.python.send("render_all_pages", params);
-    return result.pages;
   }
 
   get pageCount(): number {

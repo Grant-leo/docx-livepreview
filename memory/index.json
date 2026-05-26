@@ -1,0 +1,57 @@
+{
+  "last_updated": "2026-05-26T19:18:20+08:00",
+  "project": "docx-livepreview",
+  "language_preference": "zh-CN",
+  "product_goal": "Minimal, clear, high-fidelity VS Code DOCX preview through WPS Office.",
+  "current_version": "0.2.4",
+  "release_state": {
+    "package_metadata_aligned": true,
+    "temporary_vsix_built": true,
+    "temporary_vsix_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\docx-livepreview-0.2.4-prepublish-check.vsix",
+    "vsix_excludes_internal_memory": true,
+    "final_vsix_backed_up": true,
+    "final_vsix_path": "E:\\career\\docx-livepreview\\vsix_backups\\docx-livepreview-0.2.4.vsix",
+    "final_vsix_sha256": "DE73AC6E905851C2DE98E0F55A8D17F501BD3713080202EEDADFA6843A5B14F3",
+    "committed": true,
+    "pushed": false,
+    "marketplace_updated_after_0_2_4": true,
+    "marketplace_update_reported_by_user": "2026-05-26"
+  },
+  "core_behaviors": {
+    "active_renderer_model": "one active DOCX preview renderer per VS Code window",
+    "wps_open_mode": "owned COM instance, read-only where possible, close without saving",
+    "rendering": "progressive first page, other pages on demand",
+    "source_sync": "optional, bookmark-based, transient status messages for missing mappings"
+  },
+  "memory_system": {
+    "entrypoint": "MEMORY.md",
+    "directory": "memory/",
+    "update_skill": "C:\\Users\\Administrator\\.codex\\skills\\update-memory",
+    "trigger_phrases": [
+      "更新记忆",
+      "同步记忆",
+      "刷新记忆",
+      "更新 memory",
+      "update memory"
+    ],
+    "skill_validated": true
+  },
+  "verified_visual_tests": {
+    "cjk_mixed": {
+      "docx": "e2e_artifacts/visual_cjk_mixed_test.docx",
+      "direct_wps_render": "e2e_artifacts/cjk_mixed_direct_wps_render.png",
+      "vscode_preview_screenshot": "e2e_artifacts/visual_vscode_cjk_mixed_preview.png",
+      "passed": true
+    },
+    "formula_image": {
+      "docx": "e2e_artifacts/visual_formula_image_test_v4.docx",
+      "direct_wps_render": "e2e_artifacts/formula_image_v4_direct_wps_render.png",
+      "vscode_preview_screenshot": "e2e_artifacts/visual_vscode_formula_image_preview.png",
+      "passed": true
+    }
+  },
+  "open_threads": [
+    "Push current 0.2.4 release commit if user requests git push.",
+    "After Marketplace publish, install Marketplace build and repeat visual tests."
+  ]
+}

@@ -33,13 +33,19 @@ def main():
         import pythoncom
         pythoncom.CoInitialize()
         for pid in ["Kwps.Application", "wps.Application", "WPS.Application"]:
+            app = None
             try:
-                app = win32com.client.Dispatch(pid)  # type: ignore # noqa: F821
-                app.Quit()
+                app = win32com.client.DispatchEx(pid)  # type: ignore # noqa: F821
                 wps_ok = True
                 break
             except Exception:
                 continue
+            finally:
+                if app is not None:
+                    try:
+                        app.Quit()
+                    except Exception:
+                        pass
     except Exception:
         pass
     result["wps"] = wps_ok

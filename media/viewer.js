@@ -14,6 +14,8 @@
   let zoom = 100;
   let pageImages = new Map(); // pageNum -> base64 string
   let dpi = 200;
+  let nextRequestId = 1;
+  let latestRequestId = 0;
 
   // ── DOM refs ──
   const $ = (id) => document.getElementById(id);
@@ -76,7 +78,7 @@
         pageImage.addEventListener("load", onLoad);
       }
     } else {
-      requestAnimationFrame(function () { showCursorsForPage(page); });
+      hideAllCursors();
     }
   }
 
@@ -106,101 +108,81 @@
       applyZoom();
     } else {
       showLoading();
-      vscode.postMessage({ type: "requestPage", page });
+      var requestId = beginPageRequest();
+      vscode.postMessage({ type: "requestPage", page, requestId });
     }
   }
 
-  // ── Cursor indicators (SyncTeX bidirectional linking) ──
+  function beginPageRequest() {
+    latestRequestId = nextRequestId++;
+    return latestRequestId;
+  }
+
+  function shouldAcceptPageMessage(msg) {
+    if (typeof msg.requestId === "number" && msg.requestId < latestRequestId) {
+      return false;
+    }
+    if (typeof msg.requestId !== "number" &&
+        typeof msg.page === "number" &&
+        msg.page !== currentPage &&
+        pageImages.size > 0) {
+      return false;
+    }
+    return true;
+  }
+
+  // ── Cursor indicator ──
 
   /** Show a single cursor at PDF-coordinate (pdfX, pdfY) — used by forward search. */
   function showSingleCursor(pdfX, pdfY) {
-    removeBookmarkCursors();
-    cursorX = pdfX * (dpi / 72);
-    cursorY = pdfY * (dpi / 72);
+    clearCursorTimer();
+    var cursorX = pdfX * (dpi / 72);
+    var cursorY = pdfY * (dpi / 72);
     pendingCursor = null;
-    singleCursorActive = true;
     pageCursor.style.left = Math.round(cursorX) + "px";
     pageCursor.style.top = Math.round(cursorY - 12) + "px";
     pageCursor.style.height = "24px";
     pageCursor.classList.remove("hidden");
-  }
-
-  /** Show all bookmark cursors for a given page. */
-  function showCursorsForPage(page) {
-    if (singleCursorActive) { return; }
-    hideAllCursors();
-    var keys = Object.keys(bookmarkPositions);
-    var shownAny = false;
-    for (var i = 0; i < keys.length; i++) {
-      var pos = bookmarkPositions[keys[i]];
-      if (pos.page !== page) { continue; }
-      var cx = pos.x * (dpi / 72);
-      var cy = pos.y * (dpi / 72);
-      var el = createCursorEl(cx, cy);
-      imageWrapper.appendChild(el);
-      cursorEls.push(el);
-      shownAny = true;
-    }
-  }
-
-  function createCursorEl(left, top) {
-    var el = document.createElement("div");
-    el.className = "bookmarkCursor";
-    el.style.left = Math.round(left) + "px";
-    el.style.top = Math.round(top - 12) + "px";
-    el.style.height = "24px";
-    return el;
+    cursorHideTimer = setTimeout(function () {
+      pageCursor.classList.add("hidden");
+      cursorHideTimer = null;
+    }, 1600);
   }
 
   function hideAllCursors() {
     pendingCursor = null;
-    singleCursorActive = false;
+    clearCursorTimer();
     pageCursor.classList.add("hidden");
-    removeBookmarkCursors();
   }
 
-  function removeBookmarkCursors() {
-    for (var i = 0; i < cursorEls.length; i++) {
-      cursorEls[i].remove();
+  function clearCursorTimer() {
+    if (cursorHideTimer) {
+      clearTimeout(cursorHideTimer);
+      cursorHideTimer = null;
     }
-    cursorEls = [];
   }
 
-  var cursorX = 0;
-  var cursorY = 0;
   var pendingCursor = null;
-  var singleCursorActive = false;
   var bookmarkPositions = {};  // { sourceLine: { page, x, y } }
-  var cursorEls = [];
+  var cursorHideTimer = null;
 
   // ── Message handler ──
   window.addEventListener("message", (event) => {
     const msg = event.data;
-    console.log("[viewer] msg:", msg.type, "zoom:", msg.zoom, "dpi:", msg.dpi, "page:", msg.page);
 
     switch (msg.type) {
       case "setPage":
+        if (!shouldAcceptPageMessage(msg)) { return; }
         totalPages = msg.totalPages;
         dpi = msg.dpi || dpi;
+        if (msg.resetCache) {
+          pageImages.clear();
+          hideAllCursors();
+        }
         if (msg.zoom !== undefined) {
           zoom = msg.zoom;
         }
         displayPage(msg.image, msg.page);
-        applyZoom();
-        break;
-
-      case "setAllPages":
-        totalPages = msg.totalPages;
-        if (msg.zoom !== undefined) { zoom = msg.zoom; }
-        dpi = msg.dpi || dpi;
-        msg.pages.forEach((p) => {
-          pageImages.set(p.page, p.image);
-        });
-        if (pageImages.has(currentPage)) {
-          displayPage(pageImages.get(currentPage), currentPage);
-        } else {
-          displayPage(msg.pages[0].image, 1);
-        }
         applyZoom();
         break;
 
@@ -217,17 +199,11 @@
           }
         } else {
           goToPage(msg.page);
-          // Show all bookmarks for the target page
-          requestAnimationFrame(function () { showCursorsForPage(msg.page); });
         }
         break;
 
       case "bookmarkPositions":
         bookmarkPositions = msg.positions || {};
-        // Show cursors for the currently visible page
-        if (pageImage.src && pageImage.naturalWidth > 0) {
-          requestAnimationFrame(function () { showCursorsForPage(currentPage); });
-        }
         break;
 
       case "requestReverseSearch":
@@ -264,11 +240,13 @@
   $("btnRefresh").addEventListener("click", () => {
     showLoading();
     pageImages.clear();
-    vscode.postMessage({ type: "refresh" });
+    var requestId = beginPageRequest();
+    vscode.postMessage({ type: "refresh", page: currentPage, requestId });
   });
   $("btnRetry").addEventListener("click", () => {
     showLoading();
-    vscode.postMessage({ type: "refresh" });
+    var requestId = beginPageRequest();
+    vscode.postMessage({ type: "refresh", page: currentPage, requestId });
   });
 
   $("btnZoomOut").addEventListener("click", () => {
@@ -295,7 +273,7 @@
       zoomInput.blur();
     }
   });
-$("btnZoom100").addEventListener("click", () => {
+  $("btnZoom100").addEventListener("click", () => {
     zoom = 100;
     applyZoom();
   });

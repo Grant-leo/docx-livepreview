@@ -270,6 +270,9 @@ export class PythonManager {
   }
 
   private async healthCheck(): Promise<void> {
+    if (this.pending.size > 0) {
+      return;
+    }
     try {
       await this.send("ping", {}, 10000);
     } catch {

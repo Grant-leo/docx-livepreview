@@ -12,10 +12,15 @@ package-lock.json
 **/__pycache__/**
 **/*.pyc
 *.vsix
+~$*.docx
+**/~$*.docx
 effect_preview/**
 e2e_artifacts/**
 test_document.docx
 test_render_output.png
 test_*
+DEVELOPMENT.md
+MEMORY.md
+memory/**
 .gitignore
 .vscodeignore

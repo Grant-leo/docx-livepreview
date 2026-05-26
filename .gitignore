@@ -1,6 +1,10 @@
 node_modules/
 out/
+python/__pycache__/
 *.vsix
 ~$*.docx
+.claude/
+test_document.docx
+test_render_output.png
 e2e_artifacts/
 vsix_backups/

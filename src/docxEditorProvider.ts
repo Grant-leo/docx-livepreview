@@ -2,7 +2,7 @@
  * docxEditorProvider.ts — CustomTextEditorProvider for .docx files.
  *
  * Uses singleton PythonManager. Shows a low-res preview first (~50ms),
- * then upgrades to high-res. Pre-renders remaining pages in background.
+ * then upgrades to high-res. Additional pages render on demand.
  */
 import * as vscode from "vscode";
 import * as fs from "fs";
@@ -32,6 +32,9 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private currentDocxPath: string = "";
   private _activePanel: vscode.WebviewPanel | null = null;
   private _pendingSourceLine: number | null = null;
+  private _lastPreviewPage = 1;
+  private _activeSession = 0;
+  private _resolveChain: Promise<void> = Promise.resolve();
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -53,13 +56,37 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     webviewPanel: vscode.WebviewPanel,
     token: vscode.CancellationToken
   ): Promise<void> {
+    const task = this._resolveChain.then(
+      () => this.resolveCustomEditorInner(document, webviewPanel, token),
+      () => this.resolveCustomEditorInner(document, webviewPanel, token)
+    );
+    this._resolveChain = task.catch(() => { /* keep the resolve queue alive */ });
+    return task;
+  }
+
+  private async resolveCustomEditorInner(
+    document: DocxDocument,
+    webviewPanel: vscode.WebviewPanel,
+    token: vscode.CancellationToken
+  ): Promise<void> {
+    const previousPanel = this._activePanel;
+    await this.closeActiveRenderer();
+    if (previousPanel && previousPanel !== webviewPanel) {
+      previousPanel.dispose();
+    }
+
     webviewPanel.webview.options = { enableScripts: true };
     webviewPanel.webview.html = getHtmlForWebview(
       webviewPanel.webview,
       this.context.extensionUri
     );
 
-    this._activePanel = webviewPanel;
+    const sessionId = this.beginSession(webviewPanel);
+    webviewPanel.onDidDispose(() => {
+      if (this._activePanel !== webviewPanel) { return; }
+      this.closeActiveRenderer().catch(() => { /* best-effort */ });
+    });
+
     const pythonManager = getPythonManager();
 
     // Ensure Python process is running (should already be warmed up)
@@ -68,44 +95,60 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         await pythonManager.start();
         await pythonManager.ensureWarmedUp();
       } catch (e: any) {
-        webviewPanel.webview.postMessage({
-          type: "error",
-          message: `Failed to start Python renderer: ${e.message}`,
-        });
+        if (this.isCurrentSession(sessionId, webviewPanel)) {
+          await this.closeSessionIfCurrent(sessionId, webviewPanel);
+          webviewPanel.webview.postMessage({
+            type: "error",
+            message: `Failed to start Python renderer: ${e.message}`,
+          });
+        }
         return;
       }
     }
 
-    // Check cancellation before heavy work
-    if (token.isCancellationRequested) { return; }
-
-    // Close previous renderer if user opens another document
-    if (this.renderer) {
-      await this.renderer.close();
+    if (token.isCancellationRequested || !this.isCurrentSession(sessionId, webviewPanel)) {
+      await this.closeSessionIfCurrent(sessionId, webviewPanel);
+      return;
     }
-    this.renderer = new WpsRenderer(pythonManager);
+
+    const renderer = new WpsRenderer(pythonManager);
+    this.renderer = renderer;
     this.currentDocxPath = document.uri.fsPath;
+    this._lastPreviewPage = 1;
 
     // ── Open document ──
     let pageCount: number;
     try {
-      pageCount = await this.renderer.open(document.uri.fsPath);
+      pageCount = await renderer.open(document.uri.fsPath);
     } catch (e: any) {
-      webviewPanel.webview.postMessage({
-        type: "error",
-        message: e.message || "Failed to open document",
-      });
+      if (this.isCurrentSession(sessionId, webviewPanel, renderer)) {
+        await this.closeActiveRenderer();
+        webviewPanel.webview.postMessage({
+          type: "error",
+          message: e.message || "Failed to open document",
+        });
+      } else {
+        await renderer.close().catch(() => { /* best-effort */ });
+      }
       return;
     }
 
-    if (token.isCancellationRequested) { return; }
+    if (token.isCancellationRequested || !this.isCurrentSession(sessionId, webviewPanel, renderer)) {
+      await this.closeRendererForAbortedResolve(sessionId, webviewPanel, renderer);
+      return;
+    }
 
     const dpi = getRenderDpi();
     const zoom = getDefaultZoom();
 
     // ── Progressive: show low-res page 1 first (~50ms), then upgrade ──
     try {
-      const lowRes = await this.renderer.renderPage(1, 72);
+      const lowRes = await renderer.renderPage(1, 72);
+      if (!this.isCurrentSession(sessionId, webviewPanel, renderer) || token.isCancellationRequested) {
+        await this.closeRendererForAbortedResolve(sessionId, webviewPanel, renderer);
+        return;
+      }
+      this._lastPreviewPage = 1;
       webviewPanel.webview.postMessage({
         type: "setPage",
         image: lowRes,
@@ -117,10 +160,19 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     } catch {
       // Fall through — will show high-res
     }
+    if (!this.isCurrentSession(sessionId, webviewPanel, renderer) || token.isCancellationRequested) {
+      await this.closeRendererForAbortedResolve(sessionId, webviewPanel, renderer);
+      return;
+    }
 
     // Request high-res page 1 immediately
     try {
-      const highRes = await this.renderer.renderPage(1, dpi);
+      const highRes = await renderer.renderPage(1, dpi);
+      if (!this.isCurrentSession(sessionId, webviewPanel, renderer) || token.isCancellationRequested) {
+        await this.closeRendererForAbortedResolve(sessionId, webviewPanel, renderer);
+        return;
+      }
+      this._lastPreviewPage = 1;
       webviewPanel.webview.postMessage({
         type: "setPage",
         image: highRes,
@@ -131,40 +183,19 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         dpi,
       });
     } catch (e: any) {
-      this.renderer.close().catch(() => {});
-      webviewPanel.webview.postMessage({
-        type: "error",
-        message: e.message || "Failed to render page",
-      });
+      if (this.isCurrentSession(sessionId, webviewPanel, renderer)) {
+        await this.closeActiveRenderer();
+        webviewPanel.webview.postMessage({
+          type: "error",
+          message: e.message || "Failed to render page",
+        });
+      }
       return;
     }
 
-    // ── Background: pre-render remaining pages ──
-    if (pageCount > 1) {
-      const prerenderDpi = pageCount <= 10 ? dpi : 150;
-      this.renderer.renderAllPages(prerenderDpi).then((pages) => {
-        const data = pages as { page: number; image: string }[];
-        webviewPanel.webview.postMessage({
-          type: "setAllPages",
-          pages: data,
-          totalPages: pageCount,
-
-          zoom,
-          dpi: prerenderDpi,
-        });
-      }).catch(() => {
-        // Background pre-render failures are silent
-      });
-    }
-
-    // ── Fetch bookmark positions for cursor overlay ──
-    const bookmarkPositionsReady = this.renderer.getAllBookmarkPositions().then((positions) => {
-      webviewPanel.webview.postMessage({
-        type: "bookmarkPositions",
-        positions,
-      });
-    }).catch(() => {
-      // Non-critical; cursors just won't show until a forward search
+    // ── Fetch bookmark positions for source mapping ──
+    this.postBookmarkPositions(webviewPanel, sessionId, renderer).catch(() => {
+      // Non-critical; preview rendering does not depend on source mapping.
     });
 
     // ── Handle webview messages ──
@@ -172,13 +203,16 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       try {
         switch (msg.type) {
           case "requestPage": {
-            if (!this.renderer) { return; }
-            const img = await this.renderer.renderPage(msg.page);
+            if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
+            const img = await renderer.renderPage(msg.page);
+            if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
+            this._lastPreviewPage = msg.page;
             webviewPanel.webview.postMessage({
               type: "setPage",
               image: img,
               page: msg.page,
-              totalPages: this.renderer.pageCount,
+              totalPages: renderer.pageCount,
+              requestId: msg.requestId,
       
               zoom,
               dpi,
@@ -186,37 +220,19 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
             break;
           }
           case "refresh": {
-            if (!this.renderer) { return; }
-            const count = await this.renderer.open(document.uri.fsPath);
-            const img = await this.renderer.renderPage(1);
-            webviewPanel.webview.postMessage({
-              type: "setPage",
-              image: img,
-              page: 1,
-              totalPages: count,
-
-              zoom,
-              dpi,
-            });
-            await this._autoNavigateToActiveEditorLine(webviewPanel);
-            break;
-          }
-          case "renderAll": {
-            if (!this.renderer) { return; }
-            const pages = await this.renderer.renderAllPages();
-            webviewPanel.webview.postMessage({
-              type: "setAllPages",
-              pages,
-              totalPages: pages.length,
-
-              zoom,
-              dpi,
-            });
+            await this.refreshPreviewPanel(
+              document.uri.fsPath,
+              webviewPanel,
+              typeof msg.page === "number" ? msg.page : this._lastPreviewPage,
+              sessionId,
+              msg.requestId
+            );
             break;
           }
           case "reverseSearch": {
-            if (!this.renderer) { return; }
-            const result = await this.renderer.reverseSearch(msg.page, msg.x, msg.y);
+            if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
+            const result = await renderer.reverseSearch(msg.page, msg.x, msg.y);
+            if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
             if (result) {
               await this.openSourceLine(result.sourceLine);
             } else {
@@ -225,6 +241,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
             break;
           }
           case "reverseSearchLine": {
+            if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
             if (typeof msg.sourceLine === "number") {
               await this.openSourceLine(msg.sourceLine);
             }
@@ -232,6 +249,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           }
         }
       } catch (e: any) {
+        if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
         webviewPanel.webview.postMessage({
           type: "error",
           message: e.message || "Render failed",
@@ -240,25 +258,137 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     });
 
     // ── Auto-refresh on file change ──
-    await bookmarkPositionsReady;
+    if (!this.isCurrentSession(sessionId, webviewPanel, renderer) || token.isCancellationRequested) {
+      await this.closeRendererForAbortedResolve(sessionId, webviewPanel, renderer);
+      return;
+    }
     await this._navigateToPendingSourceLine(webviewPanel);
 
-    if (getAutoRefresh()) {
-      this.setupAutoRefresh(document, webviewPanel);
+    if (getAutoRefresh() && this.isCurrentSession(sessionId, webviewPanel, renderer)) {
+      this.setupAutoRefresh(document, webviewPanel, sessionId);
     }
+  }
 
-    // ── Cleanup on close ──
-    webviewPanel.onDidDispose(() => {
-      this.cleanupWatcher();
-      if (this._activePanel === webviewPanel) {
-        this._activePanel = null;
-      }
-      if (this.renderer) {
-        this.renderer.close().catch(() => { /* best-effort */ });
-        this.renderer = null;
-      }
-      this.currentDocxPath = "";
+  private async closeActiveRenderer(): Promise<void> {
+    const renderer = this.renderer;
+    this._activeSession++;
+    this.cleanupWatcher();
+    this.renderer = null;
+    this.currentDocxPath = "";
+    this._activePanel = null;
+    this._lastPreviewPage = 1;
+    if (renderer) {
+      await renderer.close().catch(() => { /* best-effort */ });
+    }
+  }
+
+  private beginSession(webviewPanel: vscode.WebviewPanel): number {
+    const sessionId = ++this._activeSession;
+    this._activePanel = webviewPanel;
+    return sessionId;
+  }
+
+  private isCurrentSession(
+    sessionId: number,
+    webviewPanel: vscode.WebviewPanel,
+    renderer?: WpsRenderer
+  ): boolean {
+    return this._activeSession === sessionId &&
+      this._activePanel === webviewPanel &&
+      (!renderer || this.renderer === renderer);
+  }
+
+  private async closeSessionIfCurrent(
+    sessionId: number,
+    webviewPanel: vscode.WebviewPanel
+  ): Promise<void> {
+    if (this.isCurrentSession(sessionId, webviewPanel)) {
+      await this.closeActiveRenderer();
+    }
+  }
+
+  private async closeRendererForAbortedResolve(
+    sessionId: number,
+    webviewPanel: vscode.WebviewPanel,
+    renderer: WpsRenderer
+  ): Promise<void> {
+    if (this.isCurrentSession(sessionId, webviewPanel, renderer)) {
+      await this.closeActiveRenderer();
+    } else if (this.renderer !== renderer) {
+      await renderer.close().catch(() => { /* best-effort */ });
+    }
+  }
+
+  async refreshActivePreview(): Promise<void> {
+    if (!this.renderer || !this._activePanel || !this.currentDocxPath) {
+      this.showTransientInfo("No preview panel is active.");
+      return;
+    }
+    await this.refreshPreviewPanel(
+      this.currentDocxPath,
+      this._activePanel,
+      this._lastPreviewPage,
+      this._activeSession
+    );
+  }
+
+  private async refreshPreviewPanel(
+    docxPath: string,
+    webviewPanel: vscode.WebviewPanel,
+    requestedPage: number,
+    sessionId: number,
+    requestId?: number
+  ): Promise<void> {
+    const renderer = this.renderer;
+    if (!renderer ||
+      !this.isCurrentSession(sessionId, webviewPanel, renderer) ||
+      this.currentDocxPath !== docxPath) {
+      return;
+    }
+    const dpi = getRenderDpi();
+    const zoom = getDefaultZoom();
+    const pageCount = await renderer.open(docxPath);
+    if (!this.isCurrentSession(sessionId, webviewPanel, renderer) ||
+      this.currentDocxPath !== docxPath) {
+      return;
+    }
+    const page = Math.min(Math.max(1, requestedPage || 1), pageCount || 1);
+    const img = await renderer.renderPage(page);
+    if (!this.isCurrentSession(sessionId, webviewPanel, renderer) ||
+      this.currentDocxPath !== docxPath) {
+      return;
+    }
+    this._lastPreviewPage = page;
+    await webviewPanel.webview.postMessage({
+      type: "setPage",
+      image: img,
+      page,
+      totalPages: pageCount,
+      zoom,
+      dpi,
+      resetCache: true,
+      requestId,
     });
+    await this.postBookmarkPositions(webviewPanel, sessionId, renderer);
+    await this._autoNavigateToActiveEditorLine(webviewPanel);
+  }
+
+  private async postBookmarkPositions(
+    webviewPanel: vscode.WebviewPanel,
+    sessionId: number,
+    renderer: WpsRenderer
+  ): Promise<void> {
+    if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
+    try {
+      const positions = await renderer.getAllBookmarkPositions();
+      if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
+      await webviewPanel.webview.postMessage({
+        type: "bookmarkPositions",
+        positions,
+      });
+    } catch {
+      // Non-critical; preview rendering does not depend on source mapping.
+    }
   }
 
   private async openSourceLine(sourceLine: number): Promise<void> {
@@ -343,16 +473,21 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     webviewPanel?: vscode.WebviewPanel,
     options: PreviewNavigationOptions = {}
   ): Promise<boolean> {
-    if (!this.renderer) {
+    const renderer = this.renderer;
+    const target = webviewPanel || this._activePanel;
+    const sessionId = this._activeSession;
+    if (!renderer || !target || !this.isCurrentSession(sessionId, target, renderer)) {
       if (!options.silent) {
         this.showTransientInfo("No preview renderer is active.");
       }
       return false;
     }
 
-    const result = await this.renderer.forwardSearch(sourceLine);
-    const target = webviewPanel || this._activePanel;
-    if (result && target) {
+    const result = await renderer.forwardSearch(sourceLine);
+    if (!this.isCurrentSession(sessionId, target, renderer)) {
+      return false;
+    }
+    if (result) {
       if (options.reveal !== false) {
         target.reveal(target.viewColumn, options.preserveFocus ?? false);
       }
@@ -363,6 +498,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         y: result.y,
       });
       if (posted) {
+        this._lastPreviewPage = result.page;
         return true;
       }
     }
@@ -452,7 +588,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
   private setupAutoRefresh(
     document: DocxDocument,
-    panel: vscode.WebviewPanel
+    panel: vscode.WebviewPanel,
+    sessionId: number
   ): void {
     this.cleanupWatcher();
 
@@ -465,21 +602,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       }
       this.debounceTimer = setTimeout(async () => {
         try {
-          if (!this.renderer) { return; }
-          await this.renderer.open(watchPath);
-          const img = await this.renderer.renderPage(1);
-          const zoom = getDefaultZoom();
-          const dpi = getRenderDpi();
-          panel.webview.postMessage({
-            type: "setPage",
-            image: img,
-            page: 1,
-            totalPages: this.renderer.pageCount,
-
-            zoom,
-            dpi,
-          });
-          await this._autoNavigateToActiveEditorLine(panel);
+          if (!this.renderer || !this.isCurrentSession(sessionId, panel, this.renderer)) { return; }
+          await this.refreshPreviewPanel(watchPath, panel, this._lastPreviewPage, sessionId);
         } catch {
           // Silently skip auto-refresh errors
         }
