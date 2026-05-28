@@ -43,14 +43,15 @@ export function getHtmlForWebview(
     <input type="number" id="zoomInput" min="25" max="500" value="100" title="Custom Zoom" style="width:52px;text-align:center">
     <span id="zoomLabel">100%</span>
     <button id="btnZoom100" title="100%">1:1</button>
-<div class="separator"></div>
+    <button id="btnFitWidth" title="Fit Width" aria-pressed="false">&#8596;</button>
+    <div class="separator"></div>
     <button id="btnRefresh" title="Refresh Preview">&#8635;</button>
   </div>
 
   <div id="pageContainer">
     <div id="loading">
       <div class="spinner"></div>
-      <p>Loading document...</p>
+      <p id="loadingText">Loading document...</p>
     </div>
     <div id="error" class="hidden">
       <p id="errorMessage"></p>

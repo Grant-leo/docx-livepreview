@@ -1,10 +1,12 @@
 # Open Threads
 
-Last updated: 2026-05-26 Asia/Shanghai
+Last updated: 2026-05-28 Asia/Shanghai
 
 ## Before Final Release
 
-- Decide whether to push the current `0.2.4` release commit.
+- Upload the verified `0.2.6` package if the user decides to publish this optimization release:
+  - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.6.vsix`
+- Commit and push the current `0.2.6` release candidate when release checks are accepted.
 - After Marketplace publishing, install from Marketplace and repeat at least:
   - simple DOCX visual open;
   - CJK/mixed text visual open;

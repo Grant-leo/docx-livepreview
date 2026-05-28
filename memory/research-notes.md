@@ -27,3 +27,13 @@ The local memory design for this repository borrows patterns from current AI mem
 - Basic Memory: local-first Markdown knowledge graph for AI conversations.
   - https://pypi.org/project/basic-memory/0.0.0/
 
+## 2026-05-27 VS Code Extension And UI References
+
+- `microsoft/vscode-extension-samples`: official samples for extension, custom editor, and webview patterns.
+- `microsoft/vscode-generator-code`: official extension scaffold/reference shape.
+- `microsoft/vscode-test`: extension-host testing reference.
+- `microsoft/vscode-codicons`: native VS Code icon language reference.
+- `microsoft/vscode-webview-ui-toolkit`: useful design reference, but not adopted as a dependency because it is archived.
+- VS Code UX Guidelines and Custom Editors/Webviews docs: primary design constraints for native-feeling extension UI.
+
+Decision: deploy local skills derived from these references instead of adding runtime dependencies to the extension.

@@ -1,27 +1,48 @@
 {
-  "last_updated": "2026-05-26T19:18:20+08:00",
+  "last_updated": "2026-05-28T07:45:00+08:00",
   "project": "docx-livepreview",
   "language_preference": "zh-CN",
   "product_goal": "Minimal, clear, high-fidelity VS Code DOCX preview through WPS Office.",
-  "current_version": "0.2.4",
+  "current_version": "0.2.6",
   "release_state": {
     "package_metadata_aligned": true,
     "temporary_vsix_built": true,
-    "temporary_vsix_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\docx-livepreview-0.2.4-prepublish-check.vsix",
+    "temporary_vsix_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\docx-livepreview-0.2.5-prepackage-current.vsix",
+    "temporary_vsix_sha256": "367BDD9534C8AFE003D9F3487E00CC178DC3181B3885D154D8CF0C8F16932C2E",
+    "temporary_vsix_size": 671738,
+    "optimization_check_vsix_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\docx-livepreview-0.2.5-optimization-check.vsix",
+    "optimization_check_vsix_sha256": "2404EBB0A85C6394D3464558B328C2BF4A6A5948937DB7DD9A3747920427E16F",
+    "optimization_check_vsix_size": 53851,
     "vsix_excludes_internal_memory": true,
     "final_vsix_backed_up": true,
-    "final_vsix_path": "E:\\career\\docx-livepreview\\vsix_backups\\docx-livepreview-0.2.4.vsix",
-    "final_vsix_sha256": "DE73AC6E905851C2DE98E0F55A8D17F501BD3713080202EEDADFA6843A5B14F3",
-    "committed": true,
+    "final_vsix_path": "E:\\career\\docx-livepreview\\vsix_backups\\docx-livepreview-0.2.6.vsix",
+    "final_vsix_sha256": "0B5839E81F7CF9DA7350A7E521C7314DD8EB4BE660EDF66E659A8625B33AF73B",
+    "final_vsix_size": 53914,
+    "final_vsix_installed_version": "docx-chat.docx-livepreview@0.2.6",
+    "installed_vsix_e2e_result": "e2e_artifacts/vsix_0_2_6_e2e_result.json",
+    "committed": false,
     "pushed": false,
     "marketplace_updated_after_0_2_4": true,
-    "marketplace_update_reported_by_user": "2026-05-26"
+    "marketplace_update_reported_by_user": "2026-05-26",
+    "marketplace_0_2_5_uploaded_by_user": true,
+    "next_marketplace_version": "0.2.6",
+    "final_0_2_5_vsix_backed_up": true,
+    "final_0_2_5_vsix_stale_after_optimization": true,
+    "marketplace_0_2_5_upload_pending": false,
+    "marketplace_management_url": "https://marketplace.visualstudio.com/manage/publishers/docx-chat",
+    "marketplace_management_opened_in_edge": "2026-05-27T22:37:52+08:00"
   },
   "core_behaviors": {
     "active_renderer_model": "one active DOCX preview renderer per VS Code window",
     "wps_open_mode": "owned COM instance, read-only where possible, close without saving",
     "rendering": "progressive first page, other pages on demand",
-    "source_sync": "optional, bookmark-based, transient status messages for missing mappings"
+    "source_sync": "optional, bookmark-based, transient status messages for missing mappings",
+    "zoom_state": "default zoom initializes the preview; user-selected zoom persists across navigation, refresh, and 1:1 reset",
+    "zoom_layout": "zoom changes actual image layout dimensions so scrollbars match the visible page size",
+    "fit_width": "Fit Width zoom persists across page navigation, refresh, and webview state restore",
+    "page_cache": "webview keeps only a small recent-page image cache",
+    "source_sync_positions": "bookmark positions are computed on demand when source-sync commands need them",
+    "source_script_discovery": "multiple build script matches require explicit docx.sourceScript instead of guessing"
   },
   "memory_system": {
     "entrypoint": "MEMORY.md",
@@ -36,6 +57,18 @@
     ],
     "skill_validated": true
   },
+  "local_skills": {
+    "vscode_extension_release": {
+      "path": "C:\\Users\\Administrator\\.codex\\skills\\vscode-extension-release",
+      "validated": true,
+      "purpose": "Lean VS Code extension release checks, VSIX packaging, Marketplace workflow, and regression verification."
+    },
+    "minimal_vscode_webview_ui": {
+      "path": "C:\\Users\\Administrator\\.codex\\skills\\minimal-vscode-webview-ui",
+      "validated": true,
+      "purpose": "Lightweight native-feeling VS Code webview UI design and review."
+    }
+  },
   "verified_visual_tests": {
     "cjk_mixed": {
       "docx": "e2e_artifacts/visual_cjk_mixed_test.docx",
@@ -48,10 +81,36 @@
       "direct_wps_render": "e2e_artifacts/formula_image_v4_direct_wps_render.png",
       "vscode_preview_screenshot": "e2e_artifacts/visual_vscode_formula_image_preview.png",
       "passed": true
+    },
+    "zoom_persistence": {
+      "docx": "e2e_artifacts/zoom_persistence_test.docx",
+      "vscode_e2e_result": "e2e_artifacts/postfix_zoom_layout_e2e_result.json",
+      "vscode_preview_screenshot": "e2e_artifacts/postfix_zoom_layout_valid2_03_page2_130.png",
+      "passed": true
+    },
+    "current_cjk_regression": {
+      "docx": "e2e_artifacts/cjk_mixed_regression.docx",
+      "vscode_e2e_result": "e2e_artifacts/cjk_vscode_preview_result.json",
+      "vscode_preview_screenshots": [
+        "e2e_artifacts/cjk_vscode_preview_page1.png",
+        "e2e_artifacts/cjk_vscode_preview_page2_after_arrow.png"
+      ],
+      "passed": true
+    },
+    "installed_vsix_0_2_6_fit_width": {
+      "docx": "e2e_artifacts/zoom_persistence_test_en.docx",
+      "vscode_e2e_result": "e2e_artifacts/vsix_0_2_6_e2e_result.json",
+      "vscode_preview_screenshots": [
+        "e2e_artifacts/vsix_0_2_6_01_before_fit.png",
+        "e2e_artifacts/vsix_0_2_6_02_page1_fit.png",
+        "e2e_artifacts/vsix_0_2_6_03_page2_fit.png"
+      ],
+      "passed": true
     }
   },
   "open_threads": [
-    "Push current 0.2.4 release commit if user requests git push.",
+    "Upload the verified 0.2.6 VSIX if the user decides to publish this optimization release.",
+    "Commit and push the packaged 0.2.6 release candidate when the user requests git.",
     "After Marketplace publish, install Marketplace build and repeat visual tests."
   ]
 }

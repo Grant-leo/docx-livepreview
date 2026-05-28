@@ -6,6 +6,35 @@ The format follows the spirit of [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-05-28
+
+### Added
+
+- Added a Fit Width zoom mode that persists across page navigation, refresh, and webview state restore.
+
+### Changed
+
+- Made loading text distinguish page rendering and preview refresh states.
+- Reduced the extension icon asset from roughly 627 KB to a compact 128px PNG.
+- Extended open/render/bookmark renderer request timeouts for larger DOCX files.
+- Made ambiguous source build-script discovery ask for `docx.sourceScript` instead of guessing.
+- Made auto-refresh failures show a transient status bar message instead of failing silently.
+
+## [0.2.5] - 2026-05-27
+
+### Fixed
+
+- Kept user-selected zoom across page navigation, refresh, and 1:1 reset within the preview session.
+- Made fast page navigation reject delayed render responses for pages that are no longer current.
+- Made zoom change the preview image layout size instead of only applying a CSS transform, so scrollbars match the visible page size.
+- Made auto-refresh watch the DOCX file through a VS Code `RelativePattern`, improving Windows path reliability.
+- Deferred source bookmark position scanning until source-sync commands need it, reducing startup/render blocking for large DOCX files.
+
+### Changed
+
+- Limited the webview page-image cache to a small recent-page window.
+- Pinned `@types/vscode` to `1.85.0` so compile-time API coverage matches the declared VS Code engine.
+
 ## [0.2.4] - 2026-05-26
 
 ### Fixed

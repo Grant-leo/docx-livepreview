@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-05-26 Asia/Shanghai
+Last updated: 2026-05-28 Asia/Shanghai
 
 ## Product Goal
 
@@ -16,14 +16,19 @@ DOCX Live Preview is a VS Code extension focused on one job: simple, clear, high
 
 ## Current Release Target
 
-- Current package version: `0.2.4`.
-- `package.json`, `package-lock.json`, and `CHANGELOG.md` are aligned to `0.2.4`.
-- A temporary package was successfully produced at:
-  - `C:\Users\Administrator\AppData\Local\Temp\docx-livepreview-0.2.4-prepackage-confirm.vsix`
-- Final VSIX package has been produced and backed up at:
-  - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.4.vsix`
+- Current package version: `0.2.6`.
+- `package.json`, `package-lock.json`, and `CHANGELOG.md` are aligned to `0.2.6`.
+- The user uploaded `0.2.5`; the next Marketplace update must use `0.2.6`.
+- Final `0.2.6` VSIX package has been produced, backed up, installed into an isolated VS Code profile, and tested end to end:
+  - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.6.vsix`
+  - Size: `53914` bytes
+  - SHA256: `0B5839E81F7CF9DA7350A7E521C7314DD8EB4BE660EDF66E659A8625B33AF73B`
+  - Installed version check: `docx-chat.docx-livepreview@0.2.6`
+  - Installed-VSIX E2E result: `e2e_artifacts/vsix_0_2_6_e2e_result.json`
 - The user updated the Marketplace listing with the `0.2.4` package on 2026-05-26.
-- The `0.2.4` release changes have been committed locally. Push status is pending unless a later log says otherwise.
+- The `0.2.5` Marketplace management page was opened in Microsoft Edge on 2026-05-27 for manual upload.
+- The user reported `0.2.5` has been uploaded; the verified `0.2.6` VSIX is now the current release candidate.
+- The `0.2.4` release changes have been committed locally; current `0.2.6` changes are packaged and verified but not committed yet.
 
 ## Current Architecture
 
@@ -47,6 +52,8 @@ DOCX Live Preview is a VS Code extension focused on one job: simple, clear, high
 - Unsaved edits in an external WPS window are not visible until saved to disk.
 - WPS lock files such as `~$*.docx` are ignored and excluded from VSIX packages.
 - Missing build script or source mapping shows a transient status bar message and does not block reading.
+- Fit Width zoom is available and persists across page navigation, refresh, and webview state restore.
+- If multiple source build scripts match discovery patterns, the extension asks for explicit `docx.sourceScript` instead of guessing.
 
 ## Important Working Tree Context
 
@@ -59,3 +66,6 @@ Do not revert unrelated dirty state unless the user explicitly asks.
 - `C:\Users\Administrator\.codex\skills\update-memory` is the local Codex skill for normalized disk memory updates.
 - Trigger phrases include "更新记忆", "同步记忆", "刷新记忆", "更新 memory", and "update memory".
 - The skill updates this repository's `MEMORY.md` and `memory/` files, then validates `memory/index.json` and `git diff --check`.
+- `C:\Users\Administrator\.codex\skills\vscode-extension-release` is the local Codex skill for lean VS Code extension release checks, VSIX packaging, Marketplace workflow, and regression verification.
+- `C:\Users\Administrator\.codex\skills\minimal-vscode-webview-ui` is the local Codex skill for lightweight VS Code webview UI design and review.
+- These skills are guidance-only and do not add runtime dependencies to the DOCX Live Preview extension.

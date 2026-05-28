@@ -65,6 +65,9 @@ flowchart LR
 | 2026-05-26 | Skip Python health pings while another IPC request is pending. | WPS export/render calls are serialized and can take longer than a ping timeout. | A truly hung long request is detected by that request's own timeout. |
 | 2026-05-26 | Attach request ids to page render messages. | Fast page navigation can otherwise let an older page response overwrite the newest page. | Initial progressive page renders remain unnumbered and are accepted only while still relevant. |
 | 2026-05-26 | Exclude WPS lock files from VSIX packages. | Local `~$*.docx` files can appear during render tests and should never ship. | `.vscodeignore` must stay aligned with `.gitignore` for transient artifacts. |
+| 2026-05-27 | Add a persistent Fit Width zoom mode. | Many DOCX pages are too wide at the rendered pixel scale, and users should not need to re-adjust every page. | Fit Width recomputes zoom when the webview size or page image changes. |
+| 2026-05-27 | Do not guess when multiple build scripts match. | Source sync should be predictable and avoid jumping to the wrong source file. | Users with multiple generated scripts must set `docx.sourceScript`. |
+| 2026-05-27 | Keep larger DOCX render requests alive longer. | WPS PDF export and bookmark scans can legitimately exceed one minute on larger academic documents. | Truly hung requests take longer to fail. |
 
 ## Development Workflow
 
@@ -100,13 +103,21 @@ Latest local regression checks:
 - `npm run compile`
 - `python -m py_compile python\render_server.py python\check_deps.py`
 - `python python\check_deps.py`
+- `npm audit --omit=dev`
 - `git diff --check`
 - `npx @vscode/vsce ls --no-dependencies`
-- `npx @vscode/vsce package --no-dependencies --out %TEMP%\docx-livepreview-<version>-review.vsix`
+- `npx @vscode/vsce package --no-dependencies --out vsix_backups\docx-livepreview-0.2.6.vsix`
 - Frontend VM check for refresh cache invalidation followed by next-page navigation.
 - Frontend VM check for stale page response rejection during fast navigation.
 - Direct render server IPC check: `ping`, `open_document`, `render_page`, `get_bookmark_positions`, `close_document`, `shutdown`.
 - VS Code extension host check with `@vscode/test-electron`: activate extension, open `docx.docxPreview`, run `DOCX: Refresh Preview`.
+- Frontend VM check for Fit Width persistence across page navigation, refresh text, webview state restore, and 1:1 reset.
+- Installed-VSIX check:
+  - Installed `vsix_backups\docx-livepreview-0.2.6.vsix` into an isolated VS Code profile.
+  - Confirmed `docx-chat.docx-livepreview@0.2.6`.
+  - Opened a real two-page DOCX through the installed extension, rendered with WPS, clicked Fit Width, and verified page 2 kept Fit Width active.
+  - Result JSON: `e2e_artifacts/vsix_0_2_6_e2e_result.json`.
+  - Screenshots: `e2e_artifacts/vsix_0_2_6_01_before_fit.png`, `e2e_artifacts/vsix_0_2_6_02_page1_fit.png`, `e2e_artifacts/vsix_0_2_6_03_page2_fit.png`.
 
 Note: `@vscode/test-electron` can emit VS Code host noise such as mutex or worker-load errors in this environment. Treat the DOCX-specific success markers (`preview tab found`, `refresh returned`, `ok: true`) as the plugin smoke-test result, and inspect extension-host logs for DOCX renderer failures.
 
@@ -123,10 +134,10 @@ code --extensions-dir $ext --user-data-dir $user --install-extension docx-chat.d
 code --extensions-dir $ext --user-data-dir $user --list-extensions --show-versions
 ```
 
-The expected result for version `0.2.3` is:
+For the current package metadata version, the expected result is:
 
 ```text
-docx-chat.docx-livepreview@0.2.3
+docx-chat.docx-livepreview@0.2.6
 ```
 
 If Marketplace still installs an older version while the dashboard shows `Verifying`, wait for verification and CDN propagation.
@@ -213,10 +224,20 @@ Check:
 
 ## Version Snapshot
 
-Current local release target: `0.2.3`.
+Current local package metadata version: `0.2.6`.
 
-Latest packaged artifact:
+Latest backed-up packaged artifact:
 
 ```text
-vsix_backups/docx-livepreview-0.2.3.vsix
+vsix_backups/docx-livepreview-0.2.6.vsix
+```
+
+The user has uploaded `0.2.5`; any new Marketplace update must use a later version.
+
+Current verified release artifact:
+
+```text
+Path: vsix_backups/docx-livepreview-0.2.6.vsix
+Size: 53914 bytes
+SHA256: 0B5839E81F7CF9DA7350A7E521C7314DD8EB4BE660EDF66E659A8625B33AF73B
 ```

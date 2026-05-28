@@ -49,6 +49,11 @@ body {
   background: var(--vscode-toolbar-activeBackground, #4c4c4c);
 }
 
+#toolbar button.active {
+  background: var(--vscode-toolbar-activeBackground, #4c4c4c);
+  border-color: var(--vscode-focusBorder, #007acc);
+}
+
 #toolbar .separator {
   width: 1px;
   height: 18px;
@@ -77,21 +82,19 @@ body {
 #pageContainer {
   flex: 1;
   overflow: auto;
-  display: flex;
-  justify-content: center;
   background: var(--vscode-editor-background, #1e1e1e);
 }
 
 #canvasArea {
   padding: 20px;
   text-align: center;
+  width: max-content;
+  min-width: 100%;
 }
 
 #imageWrapper {
   display: inline-block;
   position: relative;
-  transform-origin: top center;
-  transition: transform 0.1s ease;
 }
 
 #pageImage {

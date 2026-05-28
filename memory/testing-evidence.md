@@ -1,6 +1,6 @@
 # Testing Evidence
 
-Last updated: 2026-05-26 Asia/Shanghai
+Last updated: 2026-05-28 Asia/Shanghai
 
 ## Command Checks Passed
 
@@ -9,23 +9,69 @@ Last updated: 2026-05-26 Asia/Shanghai
 - `python python\check_deps.py`
 - `npm audit --omit=dev`
 - `git diff --check` passed with CRLF warnings only.
+- Webview VM regression passed for saved zoom, 1:1 persistence, stale response rejection, refresh response acceptance, and layout-sized zoom.
+- Real VS Code extension-host E2E passed after review fixes:
+  - Test DOCX: `e2e_artifacts/zoom_persistence_test_en.docx`
+  - Result JSON: `e2e_artifacts/postfix_zoom_layout_e2e_result.json`
+  - Screenshots: `e2e_artifacts/postfix_zoom_layout_valid2_01_page1_100.png`, `e2e_artifacts/postfix_zoom_layout_valid2_02_page1_130.png`, `e2e_artifacts/postfix_zoom_layout_valid2_03_page2_130.png`, `e2e_artifacts/postfix_zoom_layout_valid2_04_page2_100_refresh.png`
+  - Verified states: page 1 opened at 100%; manual zoom input changed page 1 to 130%; page 2 kept 130%; 1:1 plus refresh kept page 2 at 100%.
 - `npx @vscode/vsce ls --no-dependencies`
 - `npx @vscode/vsce package --no-dependencies --out %TEMP%\docx-livepreview-0.2.4-prepackage-confirm.vsix`
 - `npx @vscode/vsce package --no-dependencies --out %TEMP%\docx-livepreview-0.2.4-prepublish-check.vsix`
+- `npx @vscode/vsce package --no-dependencies --out %TEMP%\docx-livepreview-0.2.4-postfix-check.vsix`
+- `npx @vscode/vsce package --no-dependencies --out %TEMP%\docx-livepreview-0.2.5-prepackage-current.vsix`
 - `npx @vscode/vsce package --no-dependencies --out vsix_backups\docx-livepreview-0.2.4.vsix`
+- `npx @vscode/vsce package --no-dependencies --out vsix_backups\docx-livepreview-0.2.5.vsix`
+- `npx @vscode/vsce package --no-dependencies --out %TEMP%\docx-livepreview-0.2.5-optimization-check.vsix`
+- `npx @vscode/vsce package --no-dependencies --out vsix_backups\docx-livepreview-0.2.6.vsix`
+- Installed `vsix_backups\docx-livepreview-0.2.6.vsix` into an isolated VS Code profile and confirmed `docx-chat.docx-livepreview@0.2.6`.
 - Direct render server IPC check passed for `e2e_artifacts/visual_cjk_mixed_test.docx`: `open_document`, `render_page`, `get_bookmark_positions`, `close_document`, `shutdown`.
 - Direct render server IPC check passed for `e2e_artifacts/visual_formula_image_test_v4.docx`: `open_document`, `render_page`, `close_document`, `shutdown`.
+- Frontend VM regression check passed for zoom persistence: 130% survives a `setPage` message that carries the old 100% host zoom; 1:1 reset persists as 100%.
+- Direct render server IPC check passed for `e2e_artifacts/zoom_persistence_test.docx`: WPS opened the document, reported `page_count: 2`, and rendered pages 1 and 2.
+- Real VS Code extension-host E2E check passed for zoom persistence:
+  - Test DOCX: `e2e_artifacts/zoom_persistence_test.docx`
+  - Result JSON: `e2e_artifacts/zoom_persistence_e2e_result.json`
+  - Screenshot: `e2e_artifacts/zoom_persistence_e2e.png`
+  - Verified states: page 1 at 130% after zoom-in; page 2 still at 130% after next-page navigation; page 2 at 100% after 1:1 reset; page 2 still at 100% after refresh.
+- Real CJK regression E2E check passed for the current extension code:
+  - Test DOCX: `e2e_artifacts/cjk_mixed_regression.docx`
+  - Direct render result: `e2e_artifacts/cjk_mixed_direct_render_result.json`
+  - Direct WPS-rendered page images: `e2e_artifacts/cjk_mixed_direct_page1.png`, `e2e_artifacts/cjk_mixed_direct_page2.png`
+  - VS Code extension-host result: `e2e_artifacts/cjk_vscode_preview_result.json`
+  - VS Code extension-host screenshots: `e2e_artifacts/cjk_vscode_preview_page1.png`, `e2e_artifacts/cjk_vscode_preview_page2_after_arrow.png`
+  - Verified states: DOCX XML contained the expected Chinese text before rendering; WPS reported `page_count: 2`; page 1 and page 2 rendered readable Chinese and Chinese-English mixed text inside the actual preview webview.
+- Frontend VM regression passed for Fit Width:
+  - Fit Width computed the viewport-based zoom and persisted `zoomMode: fitWidth`.
+  - Page 2 navigation kept Fit Width active.
+  - Refresh showed `Refreshing preview...`.
+  - `1:1` reset exited Fit Width and persisted manual `100`.
+  - Webview state restore with saved Fit Width recomputed the current viewport zoom.
+- Real VS Code Extension Host Fit Width E2E passed after dismissing VS Code onboarding:
+  - Result JSON: `e2e_artifacts/fitwidth_real_final_result_9464.json`
+  - Screenshots: `e2e_artifacts/fitwidth_real_final_9464_01_before_fit.png`, `e2e_artifacts/fitwidth_real_final_9464_02_page1_fit.png`, `e2e_artifacts/fitwidth_real_final_9464_03_page2_fit.png`, `e2e_artifacts/fitwidth_real_final_9464_04_page2_reset100.png`
+  - Verified states: page 1 rendered at 100%; Fit Width changed to 66%; page 2 kept Fit Width active at 66%; 1:1 reset returned to manual 100%.
+- Installed-VSIX E2E passed for `vsix_backups\docx-livepreview-0.2.6.vsix`:
+  - Result JSON: `e2e_artifacts/vsix_0_2_6_e2e_result.json`
+  - Screenshots: `e2e_artifacts/vsix_0_2_6_01_before_fit.png`, `e2e_artifacts/vsix_0_2_6_02_page1_fit.png`, `e2e_artifacts/vsix_0_2_6_03_page2_fit.png`
+  - Verified states: installed extension rendered a real two-page DOCX through WPS; Fit Width changed to 48%; page 2 kept Fit Width active at 48%.
 
 ## Final VSIX Artifact
 
-- Path: `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.4.vsix`
-- Size: 671011 bytes
-- SHA256: `DE73AC6E905851C2DE98E0F55A8D17F501BD3713080202EEDADFA6843A5B14F3`
-- `vsce` warning: `media/icon.png` is large at 627.38 KB; this is non-blocking.
+- Path: `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.6.vsix`
+- Size: 53914 bytes
+- SHA256: `0B5839E81F7CF9DA7350A7E521C7314DD8EB4BE660EDF66E659A8625B33AF73B`
+- `vsce` warning: none for the extension icon after reducing `media/icon.png` to 17.02 KB.
+- Package was unpacked and confirmed to contain `extension/package.json` version `0.2.6` and the expected runtime/doc files only.
 
 ## Marketplace Evidence
 
 - User reported that the VS Code Marketplace listing was updated with `0.2.4` on 2026-05-26.
+- The Marketplace publisher management page was opened in Microsoft Edge on 2026-05-27:
+  - `https://marketplace.visualstudio.com/manage/publishers/docx-chat`
+  - Intended upload package at that time: `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.5.vsix`
+- User reported `0.2.5` has been uploaded. The next intended Marketplace upload package is:
+  - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.6.vsix`
 - Post-Marketplace install verification is still pending.
 
 ## VSIX Package Evidence
@@ -80,6 +126,29 @@ Result:
 - Mixed Chinese/English paragraph rendered correctly.
 - Table Chinese text and punctuation rendered correctly.
 - Bottom marker `中文混排显示成功 CJK-MIXED-END-OK` rendered correctly.
+
+### Current CJK Regression
+
+Test DOCX:
+
+- `e2e_artifacts/cjk_mixed_regression.docx`
+
+Direct WPS render:
+
+- `e2e_artifacts/cjk_mixed_direct_page1.png`
+- `e2e_artifacts/cjk_mixed_direct_page2.png`
+
+VS Code extension-host screenshots:
+
+- `e2e_artifacts/cjk_vscode_preview_page1.png`
+- `e2e_artifacts/cjk_vscode_preview_page2_after_arrow.png`
+- Cropped copies for review: `e2e_artifacts/cjk_vscode_preview_page1_crop.png`, `e2e_artifacts/cjk_vscode_preview_page2_after_arrow_crop.png`
+
+Result:
+
+- `word/document.xml` was checked before rendering and contained all expected Chinese strings.
+- Page 1 rendered `中文预览确认 - 第一页`, Chinese-English mixed text, Chinese punctuation, and formula-adjacent text correctly.
+- Page 2 rendered cross-page Chinese and mixed Chinese-English text correctly after actual preview navigation.
 
 ### OMML Formulas + Embedded Image
 

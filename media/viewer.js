@@ -7,15 +7,20 @@
  */
 (function () {
   const vscode = acquireVsCodeApi();
+  const savedState = vscode.getState() || {};
 
   // ── State ──
   let currentPage = 1;
   let totalPages = 0;
-  let zoom = 100;
+  let zoom = isValidZoom(savedState.zoom) ? clampZoom(savedState.zoom) : 100;
+  let zoomMode = savedState.zoomMode === "fitWidth" ? "fitWidth" : "manual";
+  let hasHostZoom = isValidZoom(savedState.zoom) || zoomMode === "fitWidth";
   let pageImages = new Map(); // pageNum -> base64 string
   let dpi = 200;
   let nextRequestId = 1;
   let latestRequestId = 0;
+  let pendingPageRequests = new Map(); // requestId -> pageNum
+  const maxCachedPages = 5;
 
   // ── DOM refs ──
   const $ = (id) => document.getElementById(id);
@@ -23,17 +28,21 @@
   const imageWrapper = $("imageWrapper");
   const pageCursor = $("pageCursor");
   const loading = $("loading");
+  const loadingText = $("loadingText");
   const errorBox = $("error");
   const errorMsg = $("errorMessage");
   const canvasArea = $("canvasArea");
+  const pageContainer = $("pageContainer");
   const currentPageSpan = $("currentPage");
   const totalPagesSpan = $("totalPages");
   const zoomSlider = $("zoomSlider");
   const zoomInput = $("zoomInput");
   const zoomLabel = $("zoomLabel");
+  const fitWidthButton = $("btnFitWidth");
 
   // ── Display helpers ──
-  function showLoading() {
+  function showLoading(message) {
+    loadingText.textContent = message || "Loading document...";
     loading.classList.remove("hidden");
     errorBox.classList.add("hidden");
     canvasArea.classList.add("hidden");
@@ -59,10 +68,10 @@
   }
 
   function displayPage(imageBase64, page) {
-    pageImages.set(page, imageBase64);
+    currentPage = page;
+    cachePageImage(page, imageBase64);
     pageImage.removeAttribute("src");
     pageImage.src = "data:image/png;base64," + imageBase64;
-    currentPage = page;
     showPage();
     if (pendingCursor) {
       var c = pendingCursor;
@@ -88,13 +97,68 @@
     return Math.round(v);
   }
 
+  function isValidZoom(v) {
+    return typeof v === "number" && !isNaN(v);
+  }
+
   function applyZoom() {
+    if (zoomMode === "fitWidth") {
+      zoom = calculateFitWidthZoom();
+    }
     zoom = clampZoom(zoom);
-    imageWrapper.style.transform = `scale(${zoom / 100})`;
-    imageWrapper.style.transformOrigin = "top center";
+    const scale = zoom / 100;
+    if (pageImage.naturalWidth > 0 && pageImage.naturalHeight > 0) {
+      pageImage.style.width = Math.round(pageImage.naturalWidth * scale) + "px";
+      pageImage.style.height = Math.round(pageImage.naturalHeight * scale) + "px";
+      imageWrapper.style.width = pageImage.style.width;
+      imageWrapper.style.height = pageImage.style.height;
+    }
     zoomSlider.value = String(zoom);
     zoomInput.value = String(zoom);
     zoomLabel.textContent = zoom + "%";
+    fitWidthButton.classList.toggle("active", zoomMode === "fitWidth");
+    fitWidthButton.setAttribute("aria-pressed", zoomMode === "fitWidth" ? "true" : "false");
+  }
+
+  function setZoom(value, options) {
+    zoomMode = "manual";
+    zoom = clampZoom(value);
+    hideAllCursors();
+    applyZoom();
+    if (!options || options.persist !== false) {
+      persistViewState();
+    }
+  }
+
+  function fitWidth() {
+    zoomMode = "fitWidth";
+    hideAllCursors();
+    applyZoom();
+    persistViewState();
+  }
+
+  function calculateFitWidthZoom() {
+    if (pageImage.naturalWidth <= 0) { return zoom; }
+    const style = window.getComputedStyle(canvasArea);
+    const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+    const availableWidth = Math.max(1, pageContainer.clientWidth - padding);
+    return clampZoom((availableWidth / pageImage.naturalWidth) * 100);
+  }
+
+  function persistViewState() {
+    const state = vscode.getState() || {};
+    vscode.setState({ ...state, zoom, zoomMode });
+  }
+
+  function cachePageImage(page, imageBase64) {
+    if (pageImages.has(page)) {
+      pageImages.delete(page);
+    }
+    pageImages.set(page, imageBase64);
+    while (pageImages.size > maxCachedPages) {
+      const oldestPage = pageImages.keys().next().value;
+      pageImages.delete(oldestPage);
+    }
   }
 
   function goToPage(page, options) {
@@ -104,23 +168,41 @@
     }
     currentPage = page;
     if (pageImages.has(page)) {
+      cancelPendingPageRequests();
       displayPage(pageImages.get(page), page);
       applyZoom();
     } else {
-      showLoading();
-      var requestId = beginPageRequest();
+      showLoading("Rendering page " + page + "...");
+      var requestId = beginPageRequest(page);
       vscode.postMessage({ type: "requestPage", page, requestId });
     }
   }
 
-  function beginPageRequest() {
+  function beginPageRequest(page) {
     latestRequestId = nextRequestId++;
+    pendingPageRequests.set(latestRequestId, page);
     return latestRequestId;
   }
 
+  function cancelPendingPageRequests() {
+    latestRequestId = nextRequestId++;
+    pendingPageRequests.clear();
+  }
+
   function shouldAcceptPageMessage(msg) {
-    if (typeof msg.requestId === "number" && msg.requestId < latestRequestId) {
-      return false;
+    if (typeof msg.requestId === "number") {
+      const requestedPage = pendingPageRequests.get(msg.requestId);
+      pendingPageRequests.delete(msg.requestId);
+      if (msg.requestId !== latestRequestId) {
+        return false;
+      }
+      if (requestedPage !== undefined && msg.page !== requestedPage) {
+        return false;
+      }
+      if (typeof msg.page === "number" && msg.page !== currentPage) {
+        return false;
+      }
+      return true;
     }
     if (typeof msg.requestId !== "number" &&
         typeof msg.page === "number" &&
@@ -138,10 +220,11 @@
     clearCursorTimer();
     var cursorX = pdfX * (dpi / 72);
     var cursorY = pdfY * (dpi / 72);
+    var scale = zoom / 100;
     pendingCursor = null;
-    pageCursor.style.left = Math.round(cursorX) + "px";
-    pageCursor.style.top = Math.round(cursorY - 12) + "px";
-    pageCursor.style.height = "24px";
+    pageCursor.style.left = Math.round(cursorX * scale) + "px";
+    pageCursor.style.top = Math.round((cursorY - 12) * scale) + "px";
+    pageCursor.style.height = Math.max(12, Math.round(24 * scale)) + "px";
     pageCursor.classList.remove("hidden");
     cursorHideTimer = setTimeout(function () {
       pageCursor.classList.add("hidden");
@@ -177,10 +260,12 @@
         dpi = msg.dpi || dpi;
         if (msg.resetCache) {
           pageImages.clear();
+          pendingPageRequests.clear();
           hideAllCursors();
         }
-        if (msg.zoom !== undefined) {
+        if (!hasHostZoom && msg.zoom !== undefined) {
           zoom = msg.zoom;
+          hasHostZoom = true;
         }
         displayPage(msg.image, msg.page);
         applyZoom();
@@ -238,50 +323,53 @@
   $("btnPrev").addEventListener("click", () => goToPage(currentPage - 1));
   $("btnNext").addEventListener("click", () => goToPage(currentPage + 1));
   $("btnRefresh").addEventListener("click", () => {
-    showLoading();
+    showLoading("Refreshing preview...");
     pageImages.clear();
-    var requestId = beginPageRequest();
+    var requestId = beginPageRequest(currentPage);
     vscode.postMessage({ type: "refresh", page: currentPage, requestId });
   });
   $("btnRetry").addEventListener("click", () => {
-    showLoading();
-    var requestId = beginPageRequest();
+    showLoading("Refreshing preview...");
+    var requestId = beginPageRequest(currentPage);
     vscode.postMessage({ type: "refresh", page: currentPage, requestId });
   });
 
   $("btnZoomOut").addEventListener("click", () => {
-    zoom = clampZoom(zoom - 10);
-    applyZoom();
+    setZoom(zoom - 10);
   });
   $("btnZoomIn").addEventListener("click", () => {
-    zoom = clampZoom(zoom + 10);
-    applyZoom();
+    setZoom(zoom + 10);
   });
   zoomSlider.addEventListener("input", () => {
-    zoom = parseInt(zoomSlider.value, 10);
-    applyZoom();
+    setZoom(parseInt(zoomSlider.value, 10));
   });
   zoomInput.addEventListener("change", () => {
-    zoom = clampZoom(parseInt(zoomInput.value, 10));
-    applyZoom();
+    setZoom(parseInt(zoomInput.value, 10));
   });
   zoomInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      zoom = clampZoom(parseInt(zoomInput.value, 10));
-      applyZoom();
+      setZoom(parseInt(zoomInput.value, 10));
       zoomInput.blur();
     }
   });
   $("btnZoom100").addEventListener("click", () => {
-    zoom = 100;
-    applyZoom();
+    setZoom(100);
+  });
+  fitWidthButton.addEventListener("click", () => {
+    fitWidth();
   });
 
   // ── Image load error ──
   pageImage.addEventListener("error", () => {
     pageImage.removeAttribute("src");
     showError("Failed to load rendered page image.");
+  });
+  pageImage.addEventListener("load", () => {
+    applyZoom();
+    if (zoomMode === "fitWidth") {
+      persistViewState();
+    }
   });
 
   // ── Ctrl+Click reverse search ──
@@ -369,8 +457,14 @@
   canvasArea.addEventListener("wheel", (e) => {
     if (e.ctrlKey) {
       e.preventDefault();
-      zoom = clampZoom(zoom + (e.deltaY < 0 ? 10 : -10));
-      applyZoom();
+      setZoom(zoom + (e.deltaY < 0 ? 10 : -10));
     }
   }, { passive: false });
+
+  window.addEventListener("resize", () => {
+    if (zoomMode === "fitWidth") {
+      applyZoom();
+      persistViewState();
+    }
+  });
 })();

@@ -35,6 +35,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   private _lastPreviewPage = 1;
   private _activeSession = 0;
   private _resolveChain: Promise<void> = Promise.resolve();
+  private _buildScriptIssue: string | null = null;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -193,11 +194,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       return;
     }
 
-    // ── Fetch bookmark positions for source mapping ──
-    this.postBookmarkPositions(webviewPanel, sessionId, renderer).catch(() => {
-      // Non-critical; preview rendering does not depend on source mapping.
-    });
-
     // ── Handle webview messages ──
     webviewPanel.webview.onDidReceiveMessage(async (msg) => {
       try {
@@ -213,8 +209,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
               page: msg.page,
               totalPages: renderer.pageCount,
               requestId: msg.requestId,
-      
-              zoom,
               dpi,
             });
             break;
@@ -346,7 +340,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       return;
     }
     const dpi = getRenderDpi();
-    const zoom = getDefaultZoom();
     const pageCount = await renderer.open(docxPath);
     if (!this.isCurrentSession(sessionId, webviewPanel, renderer) ||
       this.currentDocxPath !== docxPath) {
@@ -364,12 +357,10 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       image: img,
       page,
       totalPages: pageCount,
-      zoom,
       dpi,
       resetCache: true,
       requestId,
     });
-    await this.postBookmarkPositions(webviewPanel, sessionId, renderer);
     await this._autoNavigateToActiveEditorLine(webviewPanel);
   }
 
@@ -395,7 +386,8 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     const buildScript = this.findBuildScript();
     if (!buildScript) {
       this.showTransientInfo(
-        "No build script found. Set 'docx.sourceScript' to the path of your Python build script."
+        this._buildScriptIssue ||
+          "No build script found. Set 'docx.sourceScript' to the path of your Python build script."
       );
       return;
     }
@@ -411,6 +403,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
   }
 
   private findBuildScript(): string | null {
+    this._buildScriptIssue = null;
     // 1. User-configured path
     const config = vscode.workspace.getConfiguration("docx");
     const configured = config.get<string>("sourceScript", "");
@@ -418,19 +411,28 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || "";
       const resolved = configured.replace("${workspaceFolder}", wsRoot);
       if (fs.existsSync(resolved)) { return resolved; }
+      this._buildScriptIssue = "Configured source script was not found. Check 'docx.sourceScript'.";
+      return null;
     }
     // 2. Same directory as DOCX, common naming patterns
     const dir = path.dirname(this.currentDocxPath);
     const patterns = ["build_generated.py", "*_generated.py", "build_*.py"];
+    const candidates = new Set<string>();
     for (const pattern of patterns) {
       try {
         const files = fs.readdirSync(dir);
         for (const f of files) {
           if (this._matchPattern(f, pattern)) {
-            return path.join(dir, f);
+            candidates.add(path.join(dir, f));
           }
         }
       } catch { /* dir may not exist */ }
+    }
+    if (candidates.size === 1) {
+      return Array.from(candidates)[0];
+    }
+    if (candidates.size > 1) {
+      this._buildScriptIssue = "Multiple build scripts found. Set 'docx.sourceScript' to choose one.";
     }
     return null;
   }
@@ -511,8 +513,12 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
 
   /** Reverse search: find source line for current preview page center. */
   async goToSource(): Promise<void> {
-    if (this._activePanel) {
-      const posted = await this._activePanel.webview.postMessage({ type: "requestReverseSearch" });
+    const target = this._activePanel;
+    const renderer = this.renderer;
+    const sessionId = this._activeSession;
+    if (target && renderer && this.isCurrentSession(sessionId, target, renderer)) {
+      await this.postBookmarkPositions(target, sessionId, renderer);
+      const posted = await target.webview.postMessage({ type: "requestReverseSearch" });
       if (!posted) {
         this.showTransientInfo("Preview panel is not ready.");
       }
@@ -594,7 +600,13 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     this.cleanupWatcher();
 
     const watchPath = document.uri.fsPath;
-    this.fileWatcher = vscode.workspace.createFileSystemWatcher(watchPath);
+    const watchDir = path.dirname(watchPath);
+    const watchFile = path.basename(watchPath);
+    const watchPattern = new vscode.RelativePattern(vscode.Uri.file(watchDir), "*");
+    const isWatchedFile = (uri: vscode.Uri) =>
+      path.basename(uri.fsPath).toLowerCase() === watchFile.toLowerCase() &&
+      path.resolve(uri.fsPath).toLowerCase() === path.resolve(watchPath).toLowerCase();
+    this.fileWatcher = vscode.workspace.createFileSystemWatcher(watchPattern);
 
     const onRefresh = () => {
       if (this.debounceTimer) {
@@ -605,14 +617,19 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
           if (!this.renderer || !this.isCurrentSession(sessionId, panel, this.renderer)) { return; }
           await this.refreshPreviewPanel(watchPath, panel, this._lastPreviewPage, sessionId);
         } catch {
-          // Silently skip auto-refresh errors
+          this.showTransientInfo("Auto-refresh failed. The file may still be saving.");
         }
       }, 500);
     };
 
-    this.fileWatcher.onDidChange(onRefresh);
-    this.fileWatcher.onDidCreate(onRefresh);
-    this.fileWatcher.onDidDelete(() => {
+    this.fileWatcher.onDidChange((uri) => {
+      if (isWatchedFile(uri)) { onRefresh(); }
+    });
+    this.fileWatcher.onDidCreate((uri) => {
+      if (isWatchedFile(uri)) { onRefresh(); }
+    });
+    this.fileWatcher.onDidDelete((uri) => {
+      if (!isWatchedFile(uri)) { return; }
       panel.webview.postMessage({
         type: "error",
         message: "File has been deleted or moved.",

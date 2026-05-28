@@ -1,6 +1,6 @@
 # Progress Log
 
-Last updated: 2026-05-26 Asia/Shanghai
+Last updated: 2026-05-28 Asia/Shanghai
 
 ## 2026-05-26
 
@@ -35,3 +35,53 @@ Last updated: 2026-05-26 Asia/Shanghai
 - Packaged final `0.2.4` VSIX into `vsix_backups/docx-livepreview-0.2.4.vsix`.
 - User updated the VS Code Marketplace listing with version `0.2.4`.
 - Committed the `0.2.4` release changes locally.
+
+## 2026-05-27
+
+- Researched VS Code extension and webview UI references from high-quality GitHub/open-source projects and official VS Code docs.
+- Deployed local Codex skills:
+  - `vscode-extension-release`
+  - `minimal-vscode-webview-ui`
+- Chose skill deployment instead of adding UI/runtime dependencies to keep the plugin simple, efficient, and lightweight.
+- Fixed preview zoom persistence so user-selected zoom survives page navigation and refresh, and the 1:1 reset becomes the continuing zoom state.
+- Ran a real VS Code extension-host E2E test against a two-page DOCX to verify 130% persists to page 2 and restored 100% persists after refresh.
+- Ran a focused CJK regression on the current plugin code with a fresh Chinese/English mixed DOCX, checked the DOCX XML before rendering, verified direct WPS page renders, and captured real VS Code extension-host screenshots for page 1 and page 2.
+- Fixed follow-up review issues before the next package:
+  - auto-refresh now uses `vscode.RelativePattern` plus exact file filtering for Windows path reliability;
+  - stale page-render responses are rejected when the user has already navigated elsewhere;
+  - zoom now changes real image layout dimensions so scrollbars match the visible page size;
+  - webview page-image caching is capped to a small recent-page window;
+  - source bookmark position scanning is deferred until source-sync is requested;
+  - `@types/vscode` is pinned to `1.85.0` to match the declared VS Code engine.
+- Bumped the next release candidate to `0.2.5` because `0.2.4` has already been published to Marketplace.
+- Packaged final `0.2.5` VSIX into `vsix_backups/docx-livepreview-0.2.5.vsix`.
+- Opened the VS Code Marketplace publisher management page in Microsoft Edge for the user's manual `0.2.5` upload.
+- Started a post-package optimization batch:
+  - added persistent Fit Width zoom mode;
+  - made page render and refresh loading text more specific;
+  - compressed `media/icon.png` from about 642 KB to 17 KB;
+  - extended renderer request timeouts for larger DOCX files;
+  - made multiple build-script discovery require explicit `docx.sourceScript`;
+  - made auto-refresh failures show a transient status bar message.
+- Produced `%TEMP%\docx-livepreview-0.2.5-optimization-check.vsix` for verification; this means the earlier backed-up final `0.2.5` VSIX should be rebuilt before publishing these newer optimizations.
+
+## 2026-05-28
+
+- User reported that `0.2.5` has been uploaded, so the optimization release target moved to `0.2.6`.
+- Bumped package metadata to `0.2.6` and moved the Fit Width/icon/timeouts/build-script/auto-refresh notes into the `0.2.6` changelog section.
+- Ran release checks:
+  - TypeScript compile passed.
+  - Python syntax check passed.
+  - WPS/pywin32/PyMuPDF dependency check passed outside the sandbox.
+  - `npm audit --omit=dev` passed with 0 vulnerabilities.
+  - `git diff --check` passed with CRLF warnings only.
+  - `npx @vscode/vsce ls --no-dependencies` showed only runtime/doc files.
+- Packaged final `0.2.6` VSIX:
+  - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.6.vsix`
+  - Size: `53914` bytes
+  - SHA256: `0B5839E81F7CF9DA7350A7E521C7314DD8EB4BE660EDF66E659A8625B33AF73B`
+- Installed the packaged VSIX into an isolated VS Code profile and confirmed `docx-chat.docx-livepreview@0.2.6`.
+- Ran installed-VSIX E2E against a real two-page DOCX:
+  - Result: `e2e_artifacts/vsix_0_2_6_e2e_result.json`
+  - Screenshots: `e2e_artifacts/vsix_0_2_6_01_before_fit.png`, `e2e_artifacts/vsix_0_2_6_02_page1_fit.png`, `e2e_artifacts/vsix_0_2_6_03_page2_fit.png`
+  - Verified Fit Width persisted after navigating to page 2.
