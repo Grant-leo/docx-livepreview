@@ -24,7 +24,9 @@ Last updated: 2026-06-04 Asia/Shanghai
 - `npx @vscode/vsce package --no-dependencies --out vsix_backups\docx-livepreview-0.2.5.vsix`
 - `npx @vscode/vsce package --no-dependencies --out %TEMP%\docx-livepreview-0.2.5-optimization-check.vsix`
 - `npx @vscode/vsce package --no-dependencies --out vsix_backups\docx-livepreview-0.2.6.vsix`
+- `npx @vscode/vsce package --no-dependencies --out vsix_backups\docx-livepreview-0.2.7.vsix`
 - Installed `vsix_backups\docx-livepreview-0.2.6.vsix` into an isolated VS Code profile and confirmed `docx-chat.docx-livepreview@0.2.6`.
+- Installed `vsix_backups\docx-livepreview-0.2.7.vsix` into an isolated VS Code profile and confirmed `docx-chat.docx-livepreview@0.2.7`.
 - Direct render server IPC check passed for `e2e_artifacts/visual_cjk_mixed_test.docx`: `open_document`, `render_page`, `get_bookmark_positions`, `close_document`, `shutdown`.
 - Direct render server IPC check passed for `e2e_artifacts/visual_formula_image_test_v4.docx`: `open_document`, `render_page`, `close_document`, `shutdown`.
 - Frontend VM regression check passed for zoom persistence: 130% survives a `setPage` message that carries the old 100% host zoom; 1:1 reset persists as 100%.
@@ -60,14 +62,20 @@ Last updated: 2026-06-04 Asia/Shanghai
   - Result JSON: `e2e_artifacts/multi_docx_parallel/multi_docx_e2e_result_final4.json`.
   - Screenshot: `e2e_artifacts/multi_docx_parallel/multi_docx_three_columns_final4.png`.
   - Verified states: 3 DOCX webviews rendered simultaneously; Fit Width, 130%, and 100% zoom states remained isolated; page navigation and refresh stayed isolated; after closing one preview, two previews remained alive.
+- Installed-VSIX multi-DOCX E2E passed for `vsix_backups\docx-livepreview-0.2.7.vsix`:
+  - Installed version: `docx-chat.docx-livepreview@0.2.7`.
+  - Result JSON: `e2e_artifacts/vsix_0_2_7_multi_e2e_result.json`.
+  - Screenshot: `e2e_artifacts/vsix_0_2_7_multi_three_columns.png`.
+  - Verified states: installed extension rendered 3 real DOCX webviews simultaneously; Fit Width, 130%, and 100% zoom states remained isolated; page navigation and refresh stayed isolated; after closing one preview, two previews remained alive.
 
 ## Final VSIX Artifact
 
-- Path: `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.6.vsix`
-- Size: 53914 bytes
-- SHA256: `0B5839E81F7CF9DA7350A7E521C7314DD8EB4BE660EDF66E659A8625B33AF73B`
+- Path: `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.7.vsix`
+- Size: 54733 bytes
+- SHA256: `67A7C967B3C7B5262398029A91B32301747C4F8ACDF765B69967A81A33147700`
 - `vsce` warning: none for the extension icon after reducing `media/icon.png` to 17.02 KB.
-- Package was unpacked and confirmed to contain `extension/package.json` version `0.2.6` and the expected runtime/doc files only.
+- Package file list was confirmed to contain `extension/package.json` version `0.2.7` and the expected runtime/doc files only.
+- The local temporary installed-extension profile, test driver, extension directory, path file, and close/ready control files were removed after the installed-VSIX E2E. The result JSON and screenshot were kept as ignored evidence.
 
 ## Marketplace Evidence
 
@@ -76,7 +84,7 @@ Last updated: 2026-06-04 Asia/Shanghai
   - `https://marketplace.visualstudio.com/manage/publishers/docx-chat`
   - Intended upload package at that time: `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.5.vsix`
 - User reported `0.2.5` has been uploaded. The next intended Marketplace upload package is:
-  - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.6.vsix`
+  - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.7.vsix`
 - Post-Marketplace install verification is still pending.
 
 ## VSIX Package Evidence

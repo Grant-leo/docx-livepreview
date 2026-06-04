@@ -100,3 +100,14 @@ Last updated: 2026-06-04 Asia/Shanghai
   - Screenshot: `e2e_artifacts/multi_docx_parallel/multi_docx_three_columns_final4.png`
   - Verified 3 simultaneous DOCX webviews, isolated zoom states, isolated page navigation/refresh, and two previews surviving after closing one.
 - Updated README/CHANGELOG/DEVELOPMENT plus durable memory files for the `0.2.7` multi-DOCX preview release state, then prepared the git commit and push.
+- Packaged final `0.2.7` VSIX:
+  - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.7.vsix`
+  - Size: `54733` bytes
+  - SHA256: `67A7C967B3C7B5262398029A91B32301747C4F8ACDF765B69967A81A33147700`
+  - Confirmed package contents exclude `src/`, `memory/`, `e2e_artifacts/`, test DOCX, test screenshots, source maps, and `node_modules`.
+- Deleted root-level ignored leftovers `test_document.docx` and `test_render_output.png`; kept ignored `e2e_artifacts/` evidence and XHS materials out of the VSIX.
+- Installed `0.2.7` VSIX into an isolated VS Code profile and confirmed `docx-chat.docx-livepreview@0.2.7`.
+- Ran installed-VSIX multi-DOCX E2E against three real DOCX files; verified 3 simultaneous previews, isolated Fit Width / 130% / 100% zoom states, isolated page navigation and refresh, and closing one preview left two alive.
+  - Result: `e2e_artifacts/vsix_0_2_7_multi_e2e_result.json`
+  - Screenshot: `e2e_artifacts/vsix_0_2_7_multi_three_columns.png`
+  - Removed the temporary installed-extension profile, test driver, control files, and extension directory after the test.

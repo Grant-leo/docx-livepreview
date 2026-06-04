@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-06-04T10:43:11+08:00",
+  "last_updated": "2026-06-04T14:46:20+08:00",
   "project": "docx-livepreview",
   "language_preference": "zh-CN",
   "product_goal": "Minimal, clear, high-fidelity VS Code DOCX preview through WPS Office.",
@@ -15,11 +15,11 @@
     "optimization_check_vsix_size": 53851,
     "vsix_excludes_internal_memory": true,
     "final_vsix_backed_up": true,
-    "final_vsix_path": "E:\\career\\docx-livepreview\\vsix_backups\\docx-livepreview-0.2.6.vsix",
-    "final_vsix_sha256": "0B5839E81F7CF9DA7350A7E521C7314DD8EB4BE660EDF66E659A8625B33AF73B",
-    "final_vsix_size": 53914,
-    "final_vsix_installed_version": "docx-chat.docx-livepreview@0.2.6",
-    "installed_vsix_e2e_result": "e2e_artifacts/vsix_0_2_6_e2e_result.json",
+    "final_vsix_path": "E:\\career\\docx-livepreview\\vsix_backups\\docx-livepreview-0.2.7.vsix",
+    "final_vsix_sha256": "67A7C967B3C7B5262398029A91B32301747C4F8ACDF765B69967A81A33147700",
+    "final_vsix_size": 54733,
+    "final_vsix_installed_version": "docx-chat.docx-livepreview@0.2.7",
+    "installed_vsix_e2e_result": "e2e_artifacts/vsix_0_2_7_multi_e2e_result.json",
     "committed": true,
     "pushed": true,
     "marketplace_updated_after_0_2_4": true,
@@ -27,9 +27,15 @@
     "marketplace_0_2_5_uploaded_by_user": true,
     "next_marketplace_version": "0.2.7",
     "current_0_2_7_implemented": true,
-    "current_0_2_7_packaged": false,
+    "current_0_2_7_packaged": true,
     "current_0_2_7_committed": true,
     "current_0_2_7_pushed": true,
+    "current_0_2_7_vsix_path": "E:\\career\\docx-livepreview\\vsix_backups\\docx-livepreview-0.2.7.vsix",
+    "current_0_2_7_vsix_sha256": "67A7C967B3C7B5262398029A91B32301747C4F8ACDF765B69967A81A33147700",
+    "current_0_2_7_vsix_size": 54733,
+    "current_0_2_7_installed_e2e": true,
+    "current_0_2_7_installed_e2e_result": "e2e_artifacts/vsix_0_2_7_multi_e2e_result.json",
+    "current_0_2_7_installed_e2e_screenshot": "e2e_artifacts/vsix_0_2_7_multi_three_columns.png",
     "final_0_2_5_vsix_backed_up": true,
     "final_0_2_5_vsix_stale_after_optimization": true,
     "marketplace_0_2_5_upload_pending": false,
@@ -124,7 +130,7 @@
     }
   },
   "open_threads": [
-    "Package the verified 0.2.7 multi-DOCX preview release candidate.",
+    "Upload the installed-and-verified 0.2.7 VSIX when the user chooses to publish.",
     "After Marketplace publish, install Marketplace build and repeat visual tests."
   ]
 }

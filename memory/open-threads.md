@@ -4,8 +4,8 @@ Last updated: 2026-06-04 Asia/Shanghai
 
 ## Before Final Release
 
-- Package `0.2.7` after final release checks are accepted.
-- Upload the verified `0.2.7` package if the user decides to publish this multi-preview release.
+- Upload the installed-and-verified `0.2.7` package if the user decides to publish this multi-preview release:
+  - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.7.vsix`
 - After Marketplace publishing, install from Marketplace and repeat at least:
   - simple DOCX visual open;
   - three-DOCX side-by-side visual open;

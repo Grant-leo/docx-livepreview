@@ -19,7 +19,14 @@ DOCX Live Preview is a VS Code extension focused on one job: simple, clear, high
 - Current package version: `0.2.7`.
 - `package.json`, `package-lock.json`, and `CHANGELOG.md` are aligned to `0.2.7`.
 - `0.2.7` adds simultaneous multi-DOCX preview through independent per-panel Python/WPS renderer sessions.
-- The last packaged VSIX remains `0.2.6`; package `0.2.7` only after release checks are accepted.
+- Final `0.2.7` VSIX package has been produced and backed up:
+  - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.7.vsix`
+  - Size: `54733` bytes
+  - SHA256: `67A7C967B3C7B5262398029A91B32301747C4F8ACDF765B69967A81A33147700`
+  - Package contents: runtime/doc files only; no `src/`, `memory/`, `e2e_artifacts/`, test DOCX, or test screenshots.
+  - Installed version check: `docx-chat.docx-livepreview@0.2.7`
+  - Installed-VSIX E2E result: `e2e_artifacts/vsix_0_2_7_multi_e2e_result.json`
+  - Installed-VSIX E2E screenshot: `e2e_artifacts/vsix_0_2_7_multi_three_columns.png`
 - Final `0.2.6` VSIX package was produced, backed up, installed into an isolated VS Code profile, and tested end to end:
   - `E:\career\docx-livepreview\vsix_backups\docx-livepreview-0.2.6.vsix`
   - Size: `53914` bytes
@@ -29,7 +36,7 @@ DOCX Live Preview is a VS Code extension focused on one job: simple, clear, high
 - The user updated the Marketplace listing with the `0.2.4` package on 2026-05-26.
 - The `0.2.5` Marketplace management page was opened in Microsoft Edge on 2026-05-27 for manual upload.
 - The user reported `0.2.5` has been uploaded; `0.2.6` was later committed and pushed.
-- Current `0.2.7` multi-DOCX changes are implemented, E2E verified, committed, and pushed; package `0.2.7` only after release checks are accepted.
+- Current `0.2.7` multi-DOCX changes are implemented, E2E verified, committed, pushed, packaged, installed into an isolated VS Code profile, and tested end to end.
 
 ## Current Architecture
 
@@ -59,7 +66,7 @@ DOCX Live Preview is a VS Code extension focused on one job: simple, clear, high
 
 ## Important Working Tree Context
 
-At the time this memory was written, the `0.2.7` multi-DOCX preview changes were ready to commit and push. Ignored E2E artifacts remain under `e2e_artifacts/multi_docx_parallel/`.
+At the time this memory was written, the `0.2.7` multi-DOCX preview VSIX had been packaged. Root-level ignored test leftovers `test_document.docx` and `test_render_output.png` were deleted; ignored E2E evidence remains under `e2e_artifacts/` and is excluded from VSIX.
 
 Do not revert unrelated dirty state unless the user explicitly asks.
 

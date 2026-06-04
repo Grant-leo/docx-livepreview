@@ -236,17 +236,17 @@ Current local package metadata version: `0.2.7`.
 Latest backed-up packaged artifact:
 
 ```text
-vsix_backups/docx-livepreview-0.2.6.vsix
+vsix_backups/docx-livepreview-0.2.7.vsix
 ```
 
-The latest backed-up artifact is still `0.2.6`; package `0.2.7` after the multi-DOCX preview E2E checks pass.
+The latest backed-up artifact is `0.2.7`. Local packaged-VSIX install verification passed.
 
 Current verified release artifact:
 
 ```text
-Path: vsix_backups/docx-livepreview-0.2.6.vsix
-Size: 53914 bytes
-SHA256: 0B5839E81F7CF9DA7350A7E521C7314DD8EB4BE660EDF66E659A8625B33AF73B
+Path: vsix_backups/docx-livepreview-0.2.7.vsix
+Size: 54733 bytes
+SHA256: 67A7C967B3C7B5262398029A91B32301747C4F8ACDF765B69967A81A33147700
 ```
 
 Current multi-DOCX verification artifact:
@@ -254,4 +254,12 @@ Current multi-DOCX verification artifact:
 ```text
 Result: e2e_artifacts/multi_docx_parallel/multi_docx_e2e_result_final4.json
 Screenshot: e2e_artifacts/multi_docx_parallel/multi_docx_three_columns_final4.png
+```
+
+Current installed-VSIX verification artifact:
+
+```text
+Installed version: docx-chat.docx-livepreview@0.2.7
+Result: e2e_artifacts/vsix_0_2_7_multi_e2e_result.json
+Screenshot: e2e_artifacts/vsix_0_2_7_multi_three_columns.png
 ```
