@@ -6,9 +6,9 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import { DocxEditorProvider } from "./docxEditorProvider";
-import { getPythonManager, PythonManager } from "./pythonManager";
+import { PythonManager } from "./pythonManager";
 
-let pythonManager: PythonManager | null = null;
+let provider: DocxEditorProvider | null = null;
 const MAX_LABEL_RECOVERY_SCAN = 1000;
 
 export function activate(context: vscode.ExtensionContext) {
@@ -20,15 +20,13 @@ export function activate(context: vscode.ExtensionContext) {
     return;
   }
 
-  // Initialize the singleton; the renderer process is started lazily when needed.
-  pythonManager = getPythonManager(context.extensionPath);
-
   // Register custom editor for .docx files
-  const provider = new DocxEditorProvider(context);
+  const docxProvider = new DocxEditorProvider(context);
+  provider = docxProvider;
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
       "docx.docxPreview",
-      provider,
+      docxProvider,
       {
         webviewOptions: { retainContextWhenHidden: true },
         supportsMultipleEditorsPerDocument: false,
@@ -44,13 +42,13 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage("No active editor.");
         return;
       }
-      await provider.goToPreviewFromEditor(editor);
+      await docxProvider.goToPreviewFromEditor(editor);
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("docx.goToSource", () => {
-      provider.goToSource();
+      docxProvider.goToSource();
     })
   );
 
@@ -83,37 +81,15 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("docx.refreshPreview", async () => {
-      await provider.refreshActivePreview();
+      await docxProvider.refreshActivePreview();
     })
   );
 
   setTimeout(() => {
-    const hasDocxTab = hasOpenDocxTab();
-    if (hasDocxTab) {
-      warmUpRenderer();
-    }
     reopenOpenDocxTabsWithPreview().catch((e) => {
       console.error("[DOCX] Failed to restore DOCX preview tabs:", e);
     });
   }, 800);
-}
-
-function warmUpRenderer(): void {
-  if (!pythonManager) { return; }
-  pythonManager.start().then(() => {
-    return pythonManager!.ensureWarmedUp();
-  }).catch((e) => {
-    console.error("[DOCX] Failed to start Python renderer:", e);
-  });
-}
-
-function hasOpenDocxTab(): boolean {
-  return vscode.window.tabGroups.all.some((group) =>
-    group.tabs.some((tab) => {
-      const uri = getTabInputUri(tab.input);
-      return uri ? isDocxUri(uri) : isPreviewableDocxFilename(tab.label);
-    })
-  );
 }
 
 async function reopenOpenDocxTabsWithPreview(): Promise<void> {
@@ -226,7 +202,9 @@ async function isExistingFile(uri: vscode.Uri): Promise<boolean> {
 }
 
 export async function deactivate() {
-  if (pythonManager) {
-    await pythonManager.dispose();
+  if (provider) {
+    await provider.dispose();
+    provider = null;
   }
+  PythonManager.disposeSharedOutputChannel();
 }

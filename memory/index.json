@@ -1,9 +1,9 @@
 {
-  "last_updated": "2026-05-28T07:45:00+08:00",
+  "last_updated": "2026-06-04T10:43:11+08:00",
   "project": "docx-livepreview",
   "language_preference": "zh-CN",
   "product_goal": "Minimal, clear, high-fidelity VS Code DOCX preview through WPS Office.",
-  "current_version": "0.2.6",
+  "current_version": "0.2.7",
   "release_state": {
     "package_metadata_aligned": true,
     "temporary_vsix_built": true,
@@ -20,12 +20,16 @@
     "final_vsix_size": 53914,
     "final_vsix_installed_version": "docx-chat.docx-livepreview@0.2.6",
     "installed_vsix_e2e_result": "e2e_artifacts/vsix_0_2_6_e2e_result.json",
-    "committed": false,
-    "pushed": false,
+    "committed": true,
+    "pushed": true,
     "marketplace_updated_after_0_2_4": true,
     "marketplace_update_reported_by_user": "2026-05-26",
     "marketplace_0_2_5_uploaded_by_user": true,
-    "next_marketplace_version": "0.2.6",
+    "next_marketplace_version": "0.2.7",
+    "current_0_2_7_implemented": true,
+    "current_0_2_7_packaged": false,
+    "current_0_2_7_committed": true,
+    "current_0_2_7_pushed": true,
     "final_0_2_5_vsix_backed_up": true,
     "final_0_2_5_vsix_stale_after_optimization": true,
     "marketplace_0_2_5_upload_pending": false,
@@ -33,7 +37,8 @@
     "marketplace_management_opened_in_edge": "2026-05-27T22:37:52+08:00"
   },
   "core_behaviors": {
-    "active_renderer_model": "one active DOCX preview renderer per VS Code window",
+    "active_renderer_model": "one independent Python/WPS renderer per DOCX preview panel",
+    "multi_docx_preview": "at least 3 simultaneous DOCX previews verified in native VS Code editor groups",
     "wps_open_mode": "owned COM instance, read-only where possible, close without saving",
     "rendering": "progressive first page, other pages on demand",
     "source_sync": "optional, bookmark-based, transient status messages for missing mappings",
@@ -106,11 +111,20 @@
         "e2e_artifacts/vsix_0_2_6_03_page2_fit.png"
       ],
       "passed": true
+    },
+    "multi_docx_parallel_0_2_7": {
+      "docx_files": [
+        "e2e_artifacts/multi_docx_parallel/文本.docx",
+        "e2e_artifacts/multi_docx_parallel/模版.docx",
+        "e2e_artifacts/multi_docx_parallel/最终版本.docx"
+      ],
+      "vscode_e2e_result": "e2e_artifacts/multi_docx_parallel/multi_docx_e2e_result_final4.json",
+      "vscode_preview_screenshot": "e2e_artifacts/multi_docx_parallel/multi_docx_three_columns_final4.png",
+      "passed": true
     }
   },
   "open_threads": [
-    "Upload the verified 0.2.6 VSIX if the user decides to publish this optimization release.",
-    "Commit and push the packaged 0.2.6 release candidate when the user requests git.",
+    "Package the verified 0.2.7 multi-DOCX preview release candidate.",
     "After Marketplace publish, install Marketplace build and repeat visual tests."
   ]
 }

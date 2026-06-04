@@ -38,8 +38,8 @@ flowchart LR
 | Path | Responsibility |
 |---|---|
 | `src/extension.ts` | Extension activation, command registration, startup `.docx` recovery. |
-| `src/docxEditorProvider.ts` | Custom readonly editor lifecycle, renderer orchestration, sync commands, source script discovery. |
-| `src/pythonManager.ts` | JSON-line IPC process management for the Python render server. |
+| `src/docxEditorProvider.ts` | Custom readonly editor lifecycle, per-preview renderer sessions, sync commands, source script discovery. |
+| `src/pythonManager.ts` | JSON-line IPC process management for each Python render server. |
 | `src/wpsRenderer.ts` | TypeScript wrapper around renderer IPC methods. |
 | `python/render_server.py` | WPS COM automation, PDF export, PyMuPDF rendering, bookmark lookup. |
 | `media/viewer.js` | Webview UI behavior, zoom, page navigation, transient source cursor, reverse sync messages. |
@@ -68,6 +68,7 @@ flowchart LR
 | 2026-05-27 | Add a persistent Fit Width zoom mode. | Many DOCX pages are too wide at the rendered pixel scale, and users should not need to re-adjust every page. | Fit Width recomputes zoom when the webview size or page image changes. |
 | 2026-05-27 | Do not guess when multiple build scripts match. | Source sync should be predictable and avoid jumping to the wrong source file. | Users with multiple generated scripts must set `docx.sourceScript`. |
 | 2026-05-27 | Keep larger DOCX render requests alive longer. | WPS PDF export and bookmark scans can legitimately exceed one minute on larger academic documents. | Truly hung requests take longer to fail. |
+| 2026-06-04 | Use one Python/WPS renderer per preview panel. | Users need to compare text, template, and final DOCX files side by side. | Opening many DOCX files uses more WPS/Python processes and memory. |
 
 ## Development Workflow
 
@@ -118,6 +119,11 @@ Latest local regression checks:
   - Opened a real two-page DOCX through the installed extension, rendered with WPS, clicked Fit Width, and verified page 2 kept Fit Width active.
   - Result JSON: `e2e_artifacts/vsix_0_2_6_e2e_result.json`.
   - Screenshots: `e2e_artifacts/vsix_0_2_6_01_before_fit.png`, `e2e_artifacts/vsix_0_2_6_02_page1_fit.png`, `e2e_artifacts/vsix_0_2_6_03_page2_fit.png`.
+- Multi-DOCX Extension Host E2E:
+  - Opened `文本.docx`, `模版.docx`, and `最终版本.docx` in three native VS Code editor groups.
+  - Verified 3 live DOCX webviews, independent Fit Width / 130% / 100% zoom states, isolated page navigation and refresh, and two previews surviving after closing one.
+  - Result JSON: `e2e_artifacts/multi_docx_parallel/multi_docx_e2e_result_final4.json`.
+  - Screenshot: `e2e_artifacts/multi_docx_parallel/multi_docx_three_columns_final4.png`.
 
 Note: `@vscode/test-electron` can emit VS Code host noise such as mutex or worker-load errors in this environment. Treat the DOCX-specific success markers (`preview tab found`, `refresh returned`, `ok: true`) as the plugin smoke-test result, and inspect extension-host logs for DOCX renderer failures.
 
@@ -137,7 +143,7 @@ code --extensions-dir $ext --user-data-dir $user --list-extensions --show-versio
 For the current package metadata version, the expected result is:
 
 ```text
-docx-chat.docx-livepreview@0.2.6
+docx-chat.docx-livepreview@0.2.7
 ```
 
 If Marketplace still installs an older version while the dashboard shows `Verifying`, wait for verification and CDN propagation.
@@ -182,6 +188,7 @@ Before packaging, ensure `.vscodeignore` excludes:
 - Python must have `pywin32` and `PyMuPDF`.
 - Source sync requires `_src_L{line}` bookmarks inside the DOCX.
 - The extension does not automatically run build scripts. This avoids executing user code without explicit intent.
+- Each simultaneous DOCX preview owns a Python/WPS renderer, so many open previews can consume noticeable memory.
 - Marketplace installation can lag behind publisher portal updates.
 
 ## Non-goals
@@ -224,7 +231,7 @@ Check:
 
 ## Version Snapshot
 
-Current local package metadata version: `0.2.6`.
+Current local package metadata version: `0.2.7`.
 
 Latest backed-up packaged artifact:
 
@@ -232,7 +239,7 @@ Latest backed-up packaged artifact:
 vsix_backups/docx-livepreview-0.2.6.vsix
 ```
 
-The user has uploaded `0.2.5`; any new Marketplace update must use a later version.
+The latest backed-up artifact is still `0.2.6`; package `0.2.7` after the multi-DOCX preview E2E checks pass.
 
 Current verified release artifact:
 
@@ -240,4 +247,11 @@ Current verified release artifact:
 Path: vsix_backups/docx-livepreview-0.2.6.vsix
 Size: 53914 bytes
 SHA256: 0B5839E81F7CF9DA7350A7E521C7314DD8EB4BE660EDF66E659A8625B33AF73B
+```
+
+Current multi-DOCX verification artifact:
+
+```text
+Result: e2e_artifacts/multi_docx_parallel/multi_docx_e2e_result_final4.json
+Screenshot: e2e_artifacts/multi_docx_parallel/multi_docx_three_columns_final4.png
 ```

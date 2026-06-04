@@ -1,8 +1,8 @@
 /**
- * pythonManager.ts — Manages the Python render_server.py child process.
+ * pythonManager.ts — Manages one Python render_server.py child process.
  *
- * Singleton: one Python + WPS process shared across all documents.
- * Pre-warmed on extension activation so first open is instant.
+ * Each DOCX preview session owns a PythonManager instance so multiple
+ * documents can be rendered side by side without sharing WPS document state.
  */
 import * as vscode from "vscode";
 import { ChildProcess, spawn } from "child_process";
@@ -15,6 +15,7 @@ interface PendingRequest {
 }
 
 export class PythonManager {
+  private static sharedOutputChannel: vscode.OutputChannel | null = null;
   private process: ChildProcess | null = null;
   private pending = new Map<number, PendingRequest>();
   private nextId = 1;
@@ -23,6 +24,7 @@ export class PythonManager {
   private maxRestarts = 3;
   private scriptPath: string;
   private outputChannel: vscode.OutputChannel;
+  private label: string;
   private healthTimer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
   private stopping = false;
@@ -30,9 +32,15 @@ export class PythonManager {
   private _ready = false;
   private _startPromise: Promise<void> | null = null;
 
-  constructor(extensionPath: string) {
+  constructor(extensionPath: string, label = "renderer") {
     this.scriptPath = extensionPath + "/python/render_server.py";
-    this.outputChannel = vscode.window.createOutputChannel("DOCX Renderer");
+    this.outputChannel = PythonManager.getOutputChannel();
+    this.label = label;
+  }
+
+  static disposeSharedOutputChannel(): void {
+    PythonManager.sharedOutputChannel?.dispose();
+    PythonManager.sharedOutputChannel = null;
   }
 
   /** Whether the process is running and has responded to ping. */
@@ -64,7 +72,7 @@ export class PythonManager {
     if (this.process) { await this._doStop(); }
 
     const pythonPath = getPythonPath();
-    this.outputChannel.appendLine(`[PythonManager] Starting: ${pythonPath} -u ${this.scriptPath}`);
+    this.log(`Starting: ${pythonPath} -u ${this.scriptPath}`);
 
     this.process = spawn(pythonPath, ["-u", this.scriptPath], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -72,14 +80,12 @@ export class PythonManager {
     });
 
     this.process.on("error", (err) => {
-      this.outputChannel.appendLine(`[PythonManager] Process error: ${err.message}`);
+      this.log(`Process error: ${err.message}`);
       this._ready = false;
     });
 
     this.process.on("exit", (code, signal) => {
-      this.outputChannel.appendLine(
-        `[PythonManager] Process exited code=${code} signal=${signal}`
-      );
+      this.log(`Process exited code=${code} signal=${signal}`);
       this._ready = false;
       this.warmedUp = false;
       // Reject all pending requests — the old process can't answer them
@@ -95,7 +101,7 @@ export class PythonManager {
 
     if (this.process.stderr) {
       this.process.stderr.on("data", (data: Buffer) => {
-        this.outputChannel.appendLine(`[Python stderr] ${data.toString().trim()}`);
+        this.log(`stderr: ${data.toString().trim()}`);
       });
     }
 
@@ -128,16 +134,12 @@ export class PythonManager {
     if (!this.isReady) { return; }
     try {
       const logStart = Date.now();
-      this.outputChannel.appendLine("[PythonManager] Pre-warming WPS COM...");
+      this.log("Pre-warming WPS COM...");
       await this.send("warm_up", {}, 15000);
       this.warmedUp = true;
-      this.outputChannel.appendLine(
-        `[PythonManager] WPS COM ready (${Date.now() - logStart}ms)`
-      );
+      this.log(`WPS COM ready (${Date.now() - logStart}ms)`);
     } catch (e: any) {
-      this.outputChannel.appendLine(
-        `[PythonManager] Warm-up failed: ${e.message}`
-      );
+      this.log(`Warm-up failed: ${e.message}`);
     }
   }
 
@@ -238,10 +240,20 @@ export class PythonManager {
   async dispose(): Promise<void> {
     this.disposed = true;
     await this.stop();
-    this.outputChannel.dispose();
   }
 
   // ── private ──
+
+  private static getOutputChannel(): vscode.OutputChannel {
+    if (!PythonManager.sharedOutputChannel) {
+      PythonManager.sharedOutputChannel = vscode.window.createOutputChannel("DOCX Renderer");
+    }
+    return PythonManager.sharedOutputChannel;
+  }
+
+  private log(message: string): void {
+    this.outputChannel.appendLine(`[${this.label}] ${message}`);
+  }
 
   private processBuffer(): void {
     const lines = this.buffer.split("\n");
@@ -264,7 +276,7 @@ export class PythonManager {
           pending.resolve(msg.result);
         }
       } catch {
-        this.outputChannel.appendLine(`[PythonManager] Unparseable output: ${line}`);
+        this.log(`Unparseable output: ${line}`);
       }
     }
   }
@@ -276,7 +288,7 @@ export class PythonManager {
     try {
       await this.send("ping", {}, 10000);
     } catch {
-      this.outputChannel.appendLine("[PythonManager] Health check failed, restarting...");
+      this.log("Health check failed, restarting...");
       this._ready = false;
       this.warmedUp = false;
       this.attemptRestart();
@@ -296,29 +308,14 @@ export class PythonManager {
     }
 
     const delay = Math.min(1000 * Math.pow(2, this.restartCount - 1), 8000);
-    this.outputChannel.appendLine(
-      `[PythonManager] Restart attempt ${this.restartCount}/${this.maxRestarts} in ${delay}ms`
-    );
+    this.log(`Restart attempt ${this.restartCount}/${this.maxRestarts} in ${delay}ms`);
     await new Promise((r) => setTimeout(r, delay));
     try {
       await this.start();
       await this.ensureWarmedUp();
-      this.outputChannel.appendLine("[PythonManager] Restart succeeded");
+      this.log("Restart succeeded");
     } catch (e) {
-      this.outputChannel.appendLine(`[PythonManager] Restart failed: ${e}`);
+      this.log(`Restart failed: ${e}`);
     }
   }
-}
-
-let instance: PythonManager | null = null;
-
-/** Get or create the singleton PythonManager. */
-export function getPythonManager(extensionPath?: string): PythonManager {
-  if (!instance) {
-    if (!extensionPath) {
-      throw new Error("PythonManager not initialized. Call getPythonManager(path) first.");
-    }
-    instance = new PythonManager(extensionPath);
-  }
-  return instance;
 }

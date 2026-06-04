@@ -23,7 +23,7 @@ DOCX Live Preview 是一个面向 VS Code 的轻量 DOCX 预览插件。它通�
 - 刷新和自动刷新会清理旧页面缓存，避免翻页时看到过期渲染。
 - 当 DOCX 内包含 `_src_L{line}` 书签时，支持源码到预览、预览到源码的双向跳转。
 - 找不到 build 脚本或源码映射时，只在状态栏短暂提示，不遮挡阅读页面。
-- 每个 VS Code 窗口保留一个活动 DOCX 预览渲染器；打开另一个 DOCX 预览会替换当前活动预览会话。
+- 支持多个 DOCX 同时预览，已按至少 3 个并行预览面板设计，适合对比文本、模版和最终版本。
 - 通过 WPS 只读打开文档，并在关闭时不保存。
 - 自动忽略 WPS 临时锁文件，例如 `~$example.docx`。
 
@@ -48,9 +48,9 @@ pip install pywin32 PyMuPDF
 2. 文件会自动使用 `WPS DOCX Preview` 打开。
 3. 如果被其他编辑器打开，执行 `Reopen Editor With...`，选择 `WPS DOCX Preview`。
 
-## 与 WPS 同时打开
+## 多文档预览与 WPS 同时打开
 
-当前插件在每个 VS Code 窗口中只保留一个活动 DOCX 预览渲染器。你可以打开不同的 DOCX 文件，但打开另一个 DOCX 预览时，会替换当前活动预览会话，因为底层 Python/WPS 渲染服务一次只管理一个活动文档。
+当前插件会为每个 DOCX 预览面板创建独立的 Python/WPS 渲染会话。你可以用 VS Code 原生分栏同时打开文本、模版、最终版本等至少 3 个 DOCX；它们的翻页、缩放、刷新和自动刷新互不影响。关闭某个预览面板时，插件会释放对应的渲染进程。
 
 如果同一个 DOCX 已经在 WPS 中打开，插件会尽量通过自己的 WPS COM 实例以只读方式打开，并在关闭时不保存。预览渲染的是磁盘上最后保存的文件；WPS 里的未保存修改，需要保存后才会进入预览。如果 WPS 无法只读打开该文件，插件会报错，而不会抢占文档的编辑权。
 
@@ -113,7 +113,7 @@ WPS-native DOCX preview for VS Code. It renders DOCX pages through WPS Office, t
 - Refresh and auto-refresh invalidate cached preview pages before showing new renders.
 - Supports source-to-preview and preview-to-source sync when the DOCX contains `_src_L{line}` bookmarks.
 - Uses transient status bar messages for missing source mappings so the preview surface is not blocked.
-- Keeps one active DOCX preview renderer per VS Code window; opening another DOCX preview replaces the active preview session.
+- Supports multiple simultaneous DOCX previews, designed for at least 3 side-by-side preview panels.
 - Opens documents in WPS read-only mode and closes without saving.
 - Ignores WPS lock files such as `~$example.docx`.
 
@@ -138,9 +138,9 @@ pip install pywin32 PyMuPDF
 2. The file should open automatically with `WPS DOCX Preview`.
 3. If another editor opens it, run `Reopen Editor With...` and select `WPS DOCX Preview`.
 
-## Opening Alongside WPS
+## Multiple Previews And WPS
 
-The extension currently keeps one active DOCX preview renderer per VS Code window. You can open different DOCX files, but opening another DOCX preview replaces the active preview session because the Python/WPS render server manages one active document at a time.
+The extension creates an independent Python/WPS render session for each DOCX preview panel. You can use native VS Code editor splits to open at least 3 DOCX files side by side, such as source text, template, and final output. Page navigation, zoom, refresh, and auto-refresh stay isolated per preview. Closing a preview panel releases its renderer process.
 
 If the same DOCX is already open in WPS, the extension opens it read-only through its own WPS COM instance where possible and closes it without saving. The preview renders the last saved file on disk, so unsaved edits in WPS are not visible until you save them. If WPS cannot open the file read-only, the preview fails instead of taking edit ownership of the document.
 

@@ -6,6 +6,17 @@ The format follows the spirit of [Keep a Changelog](https://keepachangelog.com/e
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-06-04
+
+### Added
+
+- Added independent preview renderer sessions so at least 3 DOCX files can stay open side by side for comparison.
+
+### Changed
+
+- Refresh, source sync, auto-refresh, zoom, and page state are now isolated per preview panel.
+- Closing one DOCX preview now releases only that panel's Python/WPS renderer without affecting other open previews.
+
 ## [0.2.6] - 2026-05-28
 
 ### Added

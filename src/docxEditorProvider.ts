@@ -1,13 +1,13 @@
 /**
- * docxEditorProvider.ts — CustomTextEditorProvider for .docx files.
+ * docxEditorProvider.ts — Custom readonly editor provider for .docx files.
  *
- * Uses singleton PythonManager. Shows a low-res preview first (~50ms),
- * then upgrades to high-res. Additional pages render on demand.
+ * Each preview panel owns an independent Python/WPS renderer so multiple DOCX
+ * files can stay open side by side for visual comparison.
  */
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
-import { getPythonManager } from "./pythonManager";
+import { PythonManager } from "./pythonManager";
 import { WpsRenderer } from "./wpsRenderer";
 import { getHtmlForWebview } from "./webviewProvider";
 import { getRenderDpi, getDefaultZoom, getAutoRefresh } from "./config";
@@ -25,17 +25,25 @@ interface PreviewNavigationOptions {
   silent?: boolean;
 }
 
+interface PreviewSession {
+  id: number;
+  docxPath: string;
+  panel: vscode.WebviewPanel;
+  python: PythonManager;
+  renderer: WpsRenderer;
+  fileWatcher: vscode.FileSystemWatcher | null;
+  debounceTimer: ReturnType<typeof setTimeout> | null;
+  lastPreviewPage: number;
+  buildScriptIssue: string | null;
+  disposables: vscode.Disposable[];
+  disposed: boolean;
+}
+
 export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<DocxDocument> {
-  private renderer: WpsRenderer | null = null;
-  private fileWatcher: vscode.FileSystemWatcher | null = null;
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private currentDocxPath: string = "";
-  private _activePanel: vscode.WebviewPanel | null = null;
-  private _pendingSourceLine: number | null = null;
-  private _lastPreviewPage = 1;
-  private _activeSession = 0;
-  private _resolveChain: Promise<void> = Promise.resolve();
-  private _buildScriptIssue: string | null = null;
+  private sessions = new Map<vscode.WebviewPanel, PreviewSession>();
+  private activePanel: vscode.WebviewPanel | null = null;
+  private pendingSourceLine: number | null = null;
+  private nextSessionId = 0;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -44,7 +52,6 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     _openContext: vscode.CustomDocumentOpenContext,
     _token: vscode.CancellationToken
   ): Promise<DocxDocument> {
-    // WPS lock files start with ~$ in the filename, not anywhere in path
     const basename = uri.fsPath.split(/[\\/]/).pop() || "";
     if (basename.startsWith("~$")) {
       throw new Error("Cannot preview WPS lock files");
@@ -57,99 +64,59 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     webviewPanel: vscode.WebviewPanel,
     token: vscode.CancellationToken
   ): Promise<void> {
-    const task = this._resolveChain.then(
-      () => this.resolveCustomEditorInner(document, webviewPanel, token),
-      () => this.resolveCustomEditorInner(document, webviewPanel, token)
-    );
-    this._resolveChain = task.catch(() => { /* keep the resolve queue alive */ });
-    return task;
-  }
-
-  private async resolveCustomEditorInner(
-    document: DocxDocument,
-    webviewPanel: vscode.WebviewPanel,
-    token: vscode.CancellationToken
-  ): Promise<void> {
-    const previousPanel = this._activePanel;
-    await this.closeActiveRenderer();
-    if (previousPanel && previousPanel !== webviewPanel) {
-      previousPanel.dispose();
-    }
-
     webviewPanel.webview.options = { enableScripts: true };
     webviewPanel.webview.html = getHtmlForWebview(
       webviewPanel.webview,
       this.context.extensionUri
     );
 
-    const sessionId = this.beginSession(webviewPanel);
-    webviewPanel.onDidDispose(() => {
-      if (this._activePanel !== webviewPanel) { return; }
-      this.closeActiveRenderer().catch(() => { /* best-effort */ });
-    });
+    const session = this.createSession(document.uri.fsPath, webviewPanel);
 
-    const pythonManager = getPythonManager();
-
-    // Ensure Python process is running (should already be warmed up)
-    if (!pythonManager.isReady) {
-      try {
-        await pythonManager.start();
-        await pythonManager.ensureWarmedUp();
-      } catch (e: any) {
-        if (this.isCurrentSession(sessionId, webviewPanel)) {
-          await this.closeSessionIfCurrent(sessionId, webviewPanel);
-          webviewPanel.webview.postMessage({
-            type: "error",
-            message: `Failed to start Python renderer: ${e.message}`,
-          });
-        }
-        return;
+    try {
+      await this.ensurePythonReady(session);
+    } catch (e: any) {
+      if (this.isCurrentSession(session)) {
+        webviewPanel.webview.postMessage({
+          type: "error",
+          message: `Failed to start Python renderer: ${e.message}`,
+        });
       }
-    }
-
-    if (token.isCancellationRequested || !this.isCurrentSession(sessionId, webviewPanel)) {
-      await this.closeSessionIfCurrent(sessionId, webviewPanel);
       return;
     }
 
-    const renderer = new WpsRenderer(pythonManager);
-    this.renderer = renderer;
-    this.currentDocxPath = document.uri.fsPath;
-    this._lastPreviewPage = 1;
+    if (token.isCancellationRequested || !this.isCurrentSession(session)) {
+      await this.disposeSession(session);
+      return;
+    }
 
-    // ── Open document ──
     let pageCount: number;
     try {
-      pageCount = await renderer.open(document.uri.fsPath);
+      pageCount = await session.renderer.open(document.uri.fsPath);
     } catch (e: any) {
-      if (this.isCurrentSession(sessionId, webviewPanel, renderer)) {
-        await this.closeActiveRenderer();
+      if (this.isCurrentSession(session)) {
         webviewPanel.webview.postMessage({
           type: "error",
           message: e.message || "Failed to open document",
         });
-      } else {
-        await renderer.close().catch(() => { /* best-effort */ });
       }
       return;
     }
 
-    if (token.isCancellationRequested || !this.isCurrentSession(sessionId, webviewPanel, renderer)) {
-      await this.closeRendererForAbortedResolve(sessionId, webviewPanel, renderer);
+    if (token.isCancellationRequested || !this.isCurrentSession(session)) {
+      await this.disposeSession(session);
       return;
     }
 
     const dpi = getRenderDpi();
     const zoom = getDefaultZoom();
 
-    // ── Progressive: show low-res page 1 first (~50ms), then upgrade ──
     try {
-      const lowRes = await renderer.renderPage(1, 72);
-      if (!this.isCurrentSession(sessionId, webviewPanel, renderer) || token.isCancellationRequested) {
-        await this.closeRendererForAbortedResolve(sessionId, webviewPanel, renderer);
+      const lowRes = await session.renderer.renderPage(1, 72);
+      if (!this.isCurrentSession(session) || token.isCancellationRequested) {
+        await this.disposeSession(session);
         return;
       }
-      this._lastPreviewPage = 1;
+      session.lastPreviewPage = 1;
       webviewPanel.webview.postMessage({
         type: "setPage",
         image: lowRes,
@@ -159,33 +126,31 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
         dpi: 72,
       });
     } catch {
-      // Fall through — will show high-res
+      // Fall through and try the high-res render.
     }
-    if (!this.isCurrentSession(sessionId, webviewPanel, renderer) || token.isCancellationRequested) {
-      await this.closeRendererForAbortedResolve(sessionId, webviewPanel, renderer);
+
+    if (!this.isCurrentSession(session) || token.isCancellationRequested) {
+      await this.disposeSession(session);
       return;
     }
 
-    // Request high-res page 1 immediately
     try {
-      const highRes = await renderer.renderPage(1, dpi);
-      if (!this.isCurrentSession(sessionId, webviewPanel, renderer) || token.isCancellationRequested) {
-        await this.closeRendererForAbortedResolve(sessionId, webviewPanel, renderer);
+      const highRes = await session.renderer.renderPage(1, dpi);
+      if (!this.isCurrentSession(session) || token.isCancellationRequested) {
+        await this.disposeSession(session);
         return;
       }
-      this._lastPreviewPage = 1;
+      session.lastPreviewPage = 1;
       webviewPanel.webview.postMessage({
         type: "setPage",
         image: highRes,
         page: 1,
         totalPages: pageCount,
-
         zoom,
         dpi,
       });
     } catch (e: any) {
-      if (this.isCurrentSession(sessionId, webviewPanel, renderer)) {
-        await this.closeActiveRenderer();
+      if (this.isCurrentSession(session)) {
         webviewPanel.webview.postMessage({
           type: "error",
           message: e.message || "Failed to render page",
@@ -194,263 +159,38 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       return;
     }
 
-    // ── Handle webview messages ──
-    webviewPanel.webview.onDidReceiveMessage(async (msg) => {
-      try {
-        switch (msg.type) {
-          case "requestPage": {
-            if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
-            const img = await renderer.renderPage(msg.page);
-            if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
-            this._lastPreviewPage = msg.page;
-            webviewPanel.webview.postMessage({
-              type: "setPage",
-              image: img,
-              page: msg.page,
-              totalPages: renderer.pageCount,
-              requestId: msg.requestId,
-              dpi,
-            });
-            break;
-          }
-          case "refresh": {
-            await this.refreshPreviewPanel(
-              document.uri.fsPath,
-              webviewPanel,
-              typeof msg.page === "number" ? msg.page : this._lastPreviewPage,
-              sessionId,
-              msg.requestId
-            );
-            break;
-          }
-          case "reverseSearch": {
-            if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
-            const result = await renderer.reverseSearch(msg.page, msg.x, msg.y);
-            if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
-            if (result) {
-              await this.openSourceLine(result.sourceLine);
-            } else {
-              this.showTransientInfo("No source mapping found at this position.");
-            }
-            break;
-          }
-          case "reverseSearchLine": {
-            if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
-            if (typeof msg.sourceLine === "number") {
-              await this.openSourceLine(msg.sourceLine);
-            }
-            break;
-          }
-        }
-      } catch (e: any) {
-        if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
-        webviewPanel.webview.postMessage({
-          type: "error",
-          message: e.message || "Render failed",
-        });
-      }
-    });
-
-    // ── Auto-refresh on file change ──
-    if (!this.isCurrentSession(sessionId, webviewPanel, renderer) || token.isCancellationRequested) {
-      await this.closeRendererForAbortedResolve(sessionId, webviewPanel, renderer);
+    if (!this.isCurrentSession(session) || token.isCancellationRequested) {
+      await this.disposeSession(session);
       return;
     }
-    await this._navigateToPendingSourceLine(webviewPanel);
 
-    if (getAutoRefresh() && this.isCurrentSession(sessionId, webviewPanel, renderer)) {
-      this.setupAutoRefresh(document, webviewPanel, sessionId);
+    await this.navigateToPendingSourceLine(session);
+
+    if (getAutoRefresh() && this.isCurrentSession(session)) {
+      this.setupAutoRefresh(session);
     }
   }
 
-  private async closeActiveRenderer(): Promise<void> {
-    const renderer = this.renderer;
-    this._activeSession++;
-    this.cleanupWatcher();
-    this.renderer = null;
-    this.currentDocxPath = "";
-    this._activePanel = null;
-    this._lastPreviewPage = 1;
-    if (renderer) {
-      await renderer.close().catch(() => { /* best-effort */ });
-    }
-  }
-
-  private beginSession(webviewPanel: vscode.WebviewPanel): number {
-    const sessionId = ++this._activeSession;
-    this._activePanel = webviewPanel;
-    return sessionId;
-  }
-
-  private isCurrentSession(
-    sessionId: number,
-    webviewPanel: vscode.WebviewPanel,
-    renderer?: WpsRenderer
-  ): boolean {
-    return this._activeSession === sessionId &&
-      this._activePanel === webviewPanel &&
-      (!renderer || this.renderer === renderer);
-  }
-
-  private async closeSessionIfCurrent(
-    sessionId: number,
-    webviewPanel: vscode.WebviewPanel
-  ): Promise<void> {
-    if (this.isCurrentSession(sessionId, webviewPanel)) {
-      await this.closeActiveRenderer();
-    }
-  }
-
-  private async closeRendererForAbortedResolve(
-    sessionId: number,
-    webviewPanel: vscode.WebviewPanel,
-    renderer: WpsRenderer
-  ): Promise<void> {
-    if (this.isCurrentSession(sessionId, webviewPanel, renderer)) {
-      await this.closeActiveRenderer();
-    } else if (this.renderer !== renderer) {
-      await renderer.close().catch(() => { /* best-effort */ });
-    }
+  async dispose(): Promise<void> {
+    const sessions = Array.from(this.sessions.values());
+    await Promise.all(sessions.map((session) => this.disposeSession(session)));
   }
 
   async refreshActivePreview(): Promise<void> {
-    if (!this.renderer || !this._activePanel || !this.currentDocxPath) {
+    const session = this.getActiveSession();
+    if (!session) {
       this.showTransientInfo("No preview panel is active.");
       return;
     }
-    await this.refreshPreviewPanel(
-      this.currentDocxPath,
-      this._activePanel,
-      this._lastPreviewPage,
-      this._activeSession
-    );
+    await this.refreshPreviewPanel(session, session.lastPreviewPage);
   }
 
-  private async refreshPreviewPanel(
-    docxPath: string,
-    webviewPanel: vscode.WebviewPanel,
-    requestedPage: number,
-    sessionId: number,
-    requestId?: number
-  ): Promise<void> {
-    const renderer = this.renderer;
-    if (!renderer ||
-      !this.isCurrentSession(sessionId, webviewPanel, renderer) ||
-      this.currentDocxPath !== docxPath) {
-      return;
-    }
-    const dpi = getRenderDpi();
-    const pageCount = await renderer.open(docxPath);
-    if (!this.isCurrentSession(sessionId, webviewPanel, renderer) ||
-      this.currentDocxPath !== docxPath) {
-      return;
-    }
-    const page = Math.min(Math.max(1, requestedPage || 1), pageCount || 1);
-    const img = await renderer.renderPage(page);
-    if (!this.isCurrentSession(sessionId, webviewPanel, renderer) ||
-      this.currentDocxPath !== docxPath) {
-      return;
-    }
-    this._lastPreviewPage = page;
-    await webviewPanel.webview.postMessage({
-      type: "setPage",
-      image: img,
-      page,
-      totalPages: pageCount,
-      dpi,
-      resetCache: true,
-      requestId,
-    });
-    await this._autoNavigateToActiveEditorLine(webviewPanel);
-  }
-
-  private async postBookmarkPositions(
-    webviewPanel: vscode.WebviewPanel,
-    sessionId: number,
-    renderer: WpsRenderer
-  ): Promise<void> {
-    if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
-    try {
-      const positions = await renderer.getAllBookmarkPositions();
-      if (!this.isCurrentSession(sessionId, webviewPanel, renderer)) { return; }
-      await webviewPanel.webview.postMessage({
-        type: "bookmarkPositions",
-        positions,
-      });
-    } catch {
-      // Non-critical; preview rendering does not depend on source mapping.
-    }
-  }
-
-  private async openSourceLine(sourceLine: number): Promise<void> {
-    const buildScript = this.findBuildScript();
-    if (!buildScript) {
-      this.showTransientInfo(
-        this._buildScriptIssue ||
-          "No build script found. Set 'docx.sourceScript' to the path of your Python build script."
-      );
-      return;
-    }
-    const document = await vscode.workspace.openTextDocument(buildScript);
-    const editor = await vscode.window.showTextDocument(document);
-    const line = Math.min(
-      Math.max(0, sourceLine - 1),
-      Math.max(0, document.lineCount - 1)
-    ); // VSCode lines are 0-based
-    const range = document.lineAt(line).range;
-    editor.selection = new vscode.Selection(range.start, range.end);
-    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-  }
-
-  private findBuildScript(): string | null {
-    this._buildScriptIssue = null;
-    // 1. User-configured path
-    const config = vscode.workspace.getConfiguration("docx");
-    const configured = config.get<string>("sourceScript", "");
-    if (configured) {
-      const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || "";
-      const resolved = configured.replace("${workspaceFolder}", wsRoot);
-      if (fs.existsSync(resolved)) { return resolved; }
-      this._buildScriptIssue = "Configured source script was not found. Check 'docx.sourceScript'.";
-      return null;
-    }
-    // 2. Same directory as DOCX, common naming patterns
-    const dir = path.dirname(this.currentDocxPath);
-    const patterns = ["build_generated.py", "*_generated.py", "build_*.py"];
-    const candidates = new Set<string>();
-    for (const pattern of patterns) {
-      try {
-        const files = fs.readdirSync(dir);
-        for (const f of files) {
-          if (this._matchPattern(f, pattern)) {
-            candidates.add(path.join(dir, f));
-          }
-        }
-      } catch { /* dir may not exist */ }
-    }
-    if (candidates.size === 1) {
-      return Array.from(candidates)[0];
-    }
-    if (candidates.size > 1) {
-      this._buildScriptIssue = "Multiple build scripts found. Set 'docx.sourceScript' to choose one.";
-    }
-    return null;
-  }
-
-  private _matchPattern(filename: string, pattern: string): boolean {
-    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(
-      "^" + escaped.replace(/\*/g, ".*") + "$"
-    );
-    return re.test(filename);
-  }
-
-  /** Open or reveal the DOCX preview, then navigate it to the active source line. */
+  /** Open or reveal the active DOCX preview, then navigate it to the source line. */
   async goToPreviewFromEditor(editor: vscode.TextEditor): Promise<void> {
-    const sourceLine = editor.selection.active.line + 1; // 1-based
-    const target = this._activePanel;
-    if (this.renderer && target) {
-      await this.goToSourceLine(sourceLine, target, { reveal: true });
+    const sourceLine = editor.selection.active.line + 1;
+    const activeSession = this.getActiveSession();
+    if (activeSession) {
+      await this.goToSourceLine(sourceLine, activeSession, { reveal: true });
       return;
     }
 
@@ -460,7 +200,7 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
       return;
     }
 
-    this._pendingSourceLine = sourceLine;
+    this.pendingSourceLine = sourceLine;
     await vscode.commands.executeCommand(
       "vscode.openWith",
       docxUri,
@@ -469,38 +209,37 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     );
   }
 
-  /** Forward search: navigate preview to page containing sourceLine. */
+  /** Forward search: navigate a preview to the page containing sourceLine. */
   async goToSourceLine(
     sourceLine: number,
-    webviewPanel?: vscode.WebviewPanel,
+    session?: PreviewSession,
     options: PreviewNavigationOptions = {}
   ): Promise<boolean> {
-    const renderer = this.renderer;
-    const target = webviewPanel || this._activePanel;
-    const sessionId = this._activeSession;
-    if (!renderer || !target || !this.isCurrentSession(sessionId, target, renderer)) {
+    const targetSession = session || this.getActiveSession();
+    if (!targetSession || !this.isCurrentSession(targetSession)) {
       if (!options.silent) {
         this.showTransientInfo("No preview renderer is active.");
       }
       return false;
     }
 
-    const result = await renderer.forwardSearch(sourceLine);
-    if (!this.isCurrentSession(sessionId, target, renderer)) {
+    const result = await targetSession.renderer.forwardSearch(sourceLine);
+    if (!this.isCurrentSession(targetSession)) {
       return false;
     }
     if (result) {
       if (options.reveal !== false) {
-        target.reveal(target.viewColumn, options.preserveFocus ?? false);
+        targetSession.panel.reveal(targetSession.panel.viewColumn, options.preserveFocus ?? false);
       }
-      const posted = await target.webview.postMessage({
+      const posted = await targetSession.panel.webview.postMessage({
         type: "navigateToPage",
         page: result.page,
         x: result.x,
         y: result.y,
       });
       if (posted) {
-        this._lastPreviewPage = result.page;
+        targetSession.lastPreviewPage = result.page;
+        this.setActiveSession(targetSession);
         return true;
       }
     }
@@ -511,36 +250,275 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     return false;
   }
 
-  /** Reverse search: find source line for current preview page center. */
+  /** Reverse search: find source line for the active preview page center. */
   async goToSource(): Promise<void> {
-    const target = this._activePanel;
-    const renderer = this.renderer;
-    const sessionId = this._activeSession;
-    if (target && renderer && this.isCurrentSession(sessionId, target, renderer)) {
-      await this.postBookmarkPositions(target, sessionId, renderer);
-      const posted = await target.webview.postMessage({ type: "requestReverseSearch" });
-      if (!posted) {
-        this.showTransientInfo("Preview panel is not ready.");
-      }
-    } else {
+    const session = this.getActiveSession();
+    if (!session || !this.isCurrentSession(session)) {
       this.showTransientInfo("No preview panel is active.");
+      return;
     }
+    await this.postBookmarkPositions(session);
+    const posted = await session.panel.webview.postMessage({ type: "requestReverseSearch" });
+    if (!posted) {
+      this.showTransientInfo("Preview panel is not ready.");
+    }
+  }
+
+  private createSession(docxPath: string, panel: vscode.WebviewPanel): PreviewSession {
+    const id = ++this.nextSessionId;
+    const basename = path.basename(docxPath);
+    const python = new PythonManager(this.context.extensionPath, `${id}:${basename}`);
+    const session: PreviewSession = {
+      id,
+      docxPath,
+      panel,
+      python,
+      renderer: new WpsRenderer(python),
+      fileWatcher: null,
+      debounceTimer: null,
+      lastPreviewPage: 1,
+      buildScriptIssue: null,
+      disposables: [],
+      disposed: false,
+    };
+
+    this.sessions.set(panel, session);
+    this.setActiveSession(session);
+
+    session.disposables.push(panel.webview.onDidReceiveMessage((msg) => {
+      this.handleWebviewMessage(session, msg).catch((e: any) => {
+        if (!this.isCurrentSession(session)) { return; }
+        panel.webview.postMessage({
+          type: "error",
+          message: e.message || "Render failed",
+        });
+      });
+    }));
+
+    session.disposables.push(panel.onDidChangeViewState((e) => {
+      if (e.webviewPanel.active && this.isCurrentSession(session)) {
+        this.setActiveSession(session);
+      }
+    }));
+
+    session.disposables.push(panel.onDidDispose(() => {
+      this.disposeSession(session).catch(() => { /* best-effort */ });
+    }));
+
+    return session;
+  }
+
+  private async handleWebviewMessage(session: PreviewSession, msg: any): Promise<void> {
+    if (!this.isCurrentSession(session)) { return; }
+    this.setActiveSession(session);
+
+    switch (msg.type) {
+      case "requestPage": {
+        await this.ensurePythonReady(session);
+        if (!this.isCurrentSession(session)) { return; }
+        const img = await session.renderer.renderPage(msg.page);
+        if (!this.isCurrentSession(session)) { return; }
+        session.lastPreviewPage = msg.page;
+        session.panel.webview.postMessage({
+          type: "setPage",
+          image: img,
+          page: msg.page,
+          totalPages: session.renderer.pageCount,
+          requestId: msg.requestId,
+          dpi: getRenderDpi(),
+        });
+        break;
+      }
+      case "refresh": {
+        await this.refreshPreviewPanel(
+          session,
+          typeof msg.page === "number" ? msg.page : session.lastPreviewPage,
+          msg.requestId
+        );
+        break;
+      }
+      case "reverseSearch": {
+        const result = await session.renderer.reverseSearch(msg.page, msg.x, msg.y);
+        if (!this.isCurrentSession(session)) { return; }
+        if (result) {
+          await this.openSourceLine(session, result.sourceLine);
+        } else {
+          this.showTransientInfo("No source mapping found at this position.");
+        }
+        break;
+      }
+      case "reverseSearchLine": {
+        if (typeof msg.sourceLine === "number") {
+          await this.openSourceLine(session, msg.sourceLine);
+        }
+        break;
+      }
+    }
+  }
+
+  private async ensurePythonReady(session: PreviewSession): Promise<void> {
+    if (session.python.isReady) { return; }
+    await session.python.start();
+    await session.python.ensureWarmedUp();
+  }
+
+  private isCurrentSession(session: PreviewSession): boolean {
+    return !session.disposed && this.sessions.get(session.panel) === session;
+  }
+
+  private setActiveSession(session: PreviewSession): void {
+    if (this.isCurrentSession(session)) {
+      this.activePanel = session.panel;
+    }
+  }
+
+  private getActiveSession(): PreviewSession | undefined {
+    const active = this.activePanel ? this.sessions.get(this.activePanel) : undefined;
+    if (active && this.isCurrentSession(active)) {
+      return active;
+    }
+    const sessions = Array.from(this.sessions.values()).filter((session) =>
+      this.isCurrentSession(session)
+    );
+    return sessions[sessions.length - 1];
+  }
+
+  private async disposeSession(session: PreviewSession): Promise<void> {
+    if (session.disposed) { return; }
+    session.disposed = true;
+    this.sessions.delete(session.panel);
+    if (this.activePanel === session.panel) {
+      this.activePanel = null;
+    }
+    this.cleanupWatcher(session);
+    for (const disposable of session.disposables.splice(0)) {
+      try { disposable.dispose(); } catch { /* already disposed */ }
+    }
+    await session.renderer.close().catch(() => { /* best-effort */ });
+    await session.python.dispose().catch(() => { /* best-effort */ });
+  }
+
+  private async refreshPreviewPanel(
+    session: PreviewSession,
+    requestedPage: number,
+    requestId?: number
+  ): Promise<void> {
+    if (!this.isCurrentSession(session)) { return; }
+    await this.ensurePythonReady(session);
+    if (!this.isCurrentSession(session)) { return; }
+
+    const dpi = getRenderDpi();
+    const pageCount = await session.renderer.open(session.docxPath);
+    if (!this.isCurrentSession(session)) { return; }
+
+    const page = Math.min(Math.max(1, requestedPage || 1), pageCount || 1);
+    const img = await session.renderer.renderPage(page);
+    if (!this.isCurrentSession(session)) { return; }
+
+    session.lastPreviewPage = page;
+    await session.panel.webview.postMessage({
+      type: "setPage",
+      image: img,
+      page,
+      totalPages: pageCount,
+      dpi,
+      resetCache: true,
+      requestId,
+    });
+    await this.autoNavigateToActiveEditorLine(session);
+  }
+
+  private async postBookmarkPositions(session: PreviewSession): Promise<void> {
+    if (!this.isCurrentSession(session)) { return; }
+    try {
+      const positions = await session.renderer.getAllBookmarkPositions();
+      if (!this.isCurrentSession(session)) { return; }
+      await session.panel.webview.postMessage({
+        type: "bookmarkPositions",
+        positions,
+      });
+    } catch {
+      // Non-critical; preview rendering does not depend on source mapping.
+    }
+  }
+
+  private async openSourceLine(session: PreviewSession, sourceLine: number): Promise<void> {
+    const buildScript = this.findBuildScript(session);
+    if (!buildScript) {
+      this.showTransientInfo(
+        session.buildScriptIssue ||
+          "No build script found. Set 'docx.sourceScript' to the path of your Python build script."
+      );
+      return;
+    }
+    const document = await vscode.workspace.openTextDocument(buildScript);
+    const editor = await vscode.window.showTextDocument(document);
+    const line = Math.min(
+      Math.max(0, sourceLine - 1),
+      Math.max(0, document.lineCount - 1)
+    );
+    const range = document.lineAt(line).range;
+    editor.selection = new vscode.Selection(range.start, range.end);
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+  }
+
+  private findBuildScript(session: PreviewSession): string | null {
+    session.buildScriptIssue = null;
+    const config = vscode.workspace.getConfiguration("docx");
+    const configured = config.get<string>("sourceScript", "");
+    if (configured) {
+      const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath || "";
+      const resolved = configured.replace("${workspaceFolder}", wsRoot);
+      if (fs.existsSync(resolved)) { return resolved; }
+      session.buildScriptIssue = "Configured source script was not found. Check 'docx.sourceScript'.";
+      return null;
+    }
+
+    const dir = path.dirname(session.docxPath);
+    const patterns = ["build_generated.py", "*_generated.py", "build_*.py"];
+    const candidates = new Set<string>();
+    for (const pattern of patterns) {
+      try {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          if (this.matchPattern(file, pattern)) {
+            candidates.add(path.join(dir, file));
+          }
+        }
+      } catch {
+        // Directory may no longer exist.
+      }
+    }
+    if (candidates.size === 1) {
+      return Array.from(candidates)[0];
+    }
+    if (candidates.size > 1) {
+      session.buildScriptIssue = "Multiple build scripts found. Set 'docx.sourceScript' to choose one.";
+    }
+    return null;
+  }
+
+  private matchPattern(filename: string, pattern: string): boolean {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp("^" + escaped.replace(/\*/g, ".*") + "$");
+    return re.test(filename);
   }
 
   private showTransientInfo(message: string): void {
     vscode.window.setStatusBarMessage(`DOCX: ${message}`, 3500);
   }
 
-  private async _navigateToPendingSourceLine(webviewPanel: vscode.WebviewPanel): Promise<void> {
-    if (this._pendingSourceLine === null) { return; }
-    const sourceLine = this._pendingSourceLine;
-    this._pendingSourceLine = null;
-    await this.goToSourceLine(sourceLine, webviewPanel, { reveal: true });
+  private async navigateToPendingSourceLine(session: PreviewSession): Promise<void> {
+    if (this.pendingSourceLine === null) { return; }
+    const sourceLine = this.pendingSourceLine;
+    this.pendingSourceLine = null;
+    await this.goToSourceLine(sourceLine, session, { reveal: true });
   }
 
   private async findDocxForEditor(document: vscode.TextDocument): Promise<vscode.Uri | null> {
-    if (this.currentDocxPath && fs.existsSync(this.currentDocxPath)) {
-      return vscode.Uri.file(this.currentDocxPath);
+    const activeSession = this.getActiveSession();
+    if (activeSession && fs.existsSync(activeSession.docxPath)) {
+      return vscode.Uri.file(activeSession.docxPath);
     }
 
     const sourcePath = document.uri.scheme === "file" ? document.uri.fsPath : "";
@@ -582,69 +560,64 @@ export class DocxEditorProvider implements vscode.CustomReadonlyEditorProvider<D
     return filename.toLowerCase().endsWith(".docx") && !filename.startsWith("~$");
   }
 
-  /** After refresh, auto-navigate preview to the active editor's cursor line. */
-  private async _autoNavigateToActiveEditorLine(webviewPanel: vscode.WebviewPanel): Promise<void> {
+  private async autoNavigateToActiveEditorLine(session: PreviewSession): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (!editor) { return; }
     const doc = editor.document;
     if (!doc.fileName.endsWith(".py")) { return; }
-    const line = editor.selection.active.line + 1; // 1-based
-    await this.goToSourceLine(line, webviewPanel, { reveal: false, silent: true });
+    const line = editor.selection.active.line + 1;
+    await this.goToSourceLine(line, session, { reveal: false, silent: true });
   }
 
-  private setupAutoRefresh(
-    document: DocxDocument,
-    panel: vscode.WebviewPanel,
-    sessionId: number
-  ): void {
-    this.cleanupWatcher();
+  private setupAutoRefresh(session: PreviewSession): void {
+    this.cleanupWatcher(session);
 
-    const watchPath = document.uri.fsPath;
+    const watchPath = session.docxPath;
     const watchDir = path.dirname(watchPath);
     const watchFile = path.basename(watchPath);
     const watchPattern = new vscode.RelativePattern(vscode.Uri.file(watchDir), "*");
     const isWatchedFile = (uri: vscode.Uri) =>
       path.basename(uri.fsPath).toLowerCase() === watchFile.toLowerCase() &&
       path.resolve(uri.fsPath).toLowerCase() === path.resolve(watchPath).toLowerCase();
-    this.fileWatcher = vscode.workspace.createFileSystemWatcher(watchPattern);
+    session.fileWatcher = vscode.workspace.createFileSystemWatcher(watchPattern);
 
     const onRefresh = () => {
-      if (this.debounceTimer) {
-        clearTimeout(this.debounceTimer);
+      if (session.debounceTimer) {
+        clearTimeout(session.debounceTimer);
       }
-      this.debounceTimer = setTimeout(async () => {
+      session.debounceTimer = setTimeout(async () => {
         try {
-          if (!this.renderer || !this.isCurrentSession(sessionId, panel, this.renderer)) { return; }
-          await this.refreshPreviewPanel(watchPath, panel, this._lastPreviewPage, sessionId);
+          if (!this.isCurrentSession(session)) { return; }
+          await this.refreshPreviewPanel(session, session.lastPreviewPage);
         } catch {
           this.showTransientInfo("Auto-refresh failed. The file may still be saving.");
         }
       }, 500);
     };
 
-    this.fileWatcher.onDidChange((uri) => {
+    session.fileWatcher.onDidChange((uri) => {
       if (isWatchedFile(uri)) { onRefresh(); }
     });
-    this.fileWatcher.onDidCreate((uri) => {
+    session.fileWatcher.onDidCreate((uri) => {
       if (isWatchedFile(uri)) { onRefresh(); }
     });
-    this.fileWatcher.onDidDelete((uri) => {
+    session.fileWatcher.onDidDelete((uri) => {
       if (!isWatchedFile(uri)) { return; }
-      panel.webview.postMessage({
+      session.panel.webview.postMessage({
         type: "error",
         message: "File has been deleted or moved.",
       });
     });
   }
 
-  private cleanupWatcher(): void {
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
+  private cleanupWatcher(session: PreviewSession): void {
+    if (session.debounceTimer) {
+      clearTimeout(session.debounceTimer);
+      session.debounceTimer = null;
     }
-    if (this.fileWatcher) {
-      try { this.fileWatcher.dispose(); } catch { /* already disposed */ }
-      this.fileWatcher = null;
+    if (session.fileWatcher) {
+      try { session.fileWatcher.dispose(); } catch { /* already disposed */ }
+      session.fileWatcher = null;
     }
   }
 }

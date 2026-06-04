@@ -1,6 +1,6 @@
 # Testing Evidence
 
-Last updated: 2026-05-28 Asia/Shanghai
+Last updated: 2026-06-04 Asia/Shanghai
 
 ## Command Checks Passed
 
@@ -55,6 +55,11 @@ Last updated: 2026-05-28 Asia/Shanghai
   - Result JSON: `e2e_artifacts/vsix_0_2_6_e2e_result.json`
   - Screenshots: `e2e_artifacts/vsix_0_2_6_01_before_fit.png`, `e2e_artifacts/vsix_0_2_6_02_page1_fit.png`, `e2e_artifacts/vsix_0_2_6_03_page2_fit.png`
   - Verified states: installed extension rendered a real two-page DOCX through WPS; Fit Width changed to 48%; page 2 kept Fit Width active at 48%.
+- Real VS Code Extension Host multi-DOCX E2E passed for current `0.2.7` code:
+  - Test DOCX files: `e2e_artifacts/multi_docx_parallel/文本.docx`, `e2e_artifacts/multi_docx_parallel/模版.docx`, `e2e_artifacts/multi_docx_parallel/最终版本.docx`.
+  - Result JSON: `e2e_artifacts/multi_docx_parallel/multi_docx_e2e_result_final4.json`.
+  - Screenshot: `e2e_artifacts/multi_docx_parallel/multi_docx_three_columns_final4.png`.
+  - Verified states: 3 DOCX webviews rendered simultaneously; Fit Width, 130%, and 100% zoom states remained isolated; page navigation and refresh stayed isolated; after closing one preview, two previews remained alive.
 
 ## Final VSIX Artifact
 
@@ -171,6 +176,25 @@ Result:
 - OMML radical formula displayed.
 - Embedded PNG image displayed with blue banner, red circle, green square, and yellow triangle.
 - Webview toolbar and page content were visible.
+
+### Multi-DOCX Parallel Preview
+
+Test DOCX files:
+
+- `e2e_artifacts/multi_docx_parallel/文本.docx`
+- `e2e_artifacts/multi_docx_parallel/模版.docx`
+- `e2e_artifacts/multi_docx_parallel/最终版本.docx`
+
+VS Code Extension Host screenshot:
+
+- `e2e_artifacts/multi_docx_parallel/multi_docx_three_columns_final4.png`
+
+Result:
+
+- Three DOCX previews opened in native VS Code editor groups at the same time.
+- Chinese filenames and Chinese/English mixed document content rendered correctly.
+- One preview stayed on Fit Width page 2, another stayed at 130%, and the third stayed at 100%.
+- Closing one preview left the other two preview webviews alive.
 
 ## Important Lesson
 

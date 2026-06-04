@@ -1,6 +1,6 @@
 # Decisions
 
-Last updated: 2026-05-27 Asia/Shanghai
+Last updated: 2026-06-04 Asia/Shanghai
 
 ## Product Scope
 
@@ -8,17 +8,18 @@ Keep the extension focused on DOCX preview quality. Avoid adding broad editing, 
 
 ## Preview Model
 
-Maintain one active DOCX preview renderer per VS Code window.
+Maintain one DOCX preview renderer per preview panel.
 
 Rationale:
 
-- The Python/WPS render server manages one active WPS document at a time.
-- This keeps lifecycle and file-lock behavior understandable.
+- Users need to compare at least three DOCX files side by side: text, template, and final output.
+- The Python/WPS render server still manages one active WPS document, but each preview panel now owns its own render server.
+- Per-panel sessions keep page navigation, zoom, refresh, auto-refresh, and cleanup isolated.
 - It matches the user's preference for simplicity.
 
 Tradeoff:
 
-- True simultaneous multi-DOCX preview would require multiple renderer instances or a more complex queue/session model.
+- Multiple simultaneous DOCX previews use more Python/WPS processes and memory.
 
 ## WPS Interop
 

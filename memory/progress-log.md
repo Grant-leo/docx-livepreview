@@ -1,6 +1,6 @@
 # Progress Log
 
-Last updated: 2026-05-28 Asia/Shanghai
+Last updated: 2026-06-04 Asia/Shanghai
 
 ## 2026-05-26
 
@@ -85,3 +85,18 @@ Last updated: 2026-05-28 Asia/Shanghai
   - Result: `e2e_artifacts/vsix_0_2_6_e2e_result.json`
   - Screenshots: `e2e_artifacts/vsix_0_2_6_01_before_fit.png`, `e2e_artifacts/vsix_0_2_6_02_page1_fit.png`, `e2e_artifacts/vsix_0_2_6_03_page2_fit.png`
   - Verified Fit Width persisted after navigating to page 2.
+
+## 2026-06-04
+
+- Implemented simultaneous multi-DOCX preview for version `0.2.7`.
+- Refactored preview lifecycle from one active renderer per VS Code window to one independent Python/WPS renderer per preview panel.
+- Kept the UI simple: no dedicated comparison view or diff UI; users use VS Code native editor groups for side-by-side comparison.
+- Generated three real DOCX files with Chinese filenames and Chinese/English mixed content:
+  - `e2e_artifacts/multi_docx_parallel/文本.docx`
+  - `e2e_artifacts/multi_docx_parallel/模版.docx`
+  - `e2e_artifacts/multi_docx_parallel/最终版本.docx`
+- Ran real VS Code Extension Host multi-DOCX E2E:
+  - Result: `e2e_artifacts/multi_docx_parallel/multi_docx_e2e_result_final4.json`
+  - Screenshot: `e2e_artifacts/multi_docx_parallel/multi_docx_three_columns_final4.png`
+  - Verified 3 simultaneous DOCX webviews, isolated zoom states, isolated page navigation/refresh, and two previews surviving after closing one.
+- Updated README/CHANGELOG/DEVELOPMENT plus durable memory files for the `0.2.7` multi-DOCX preview release state, then prepared the git commit and push.
